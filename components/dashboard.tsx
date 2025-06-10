@@ -5,12 +5,24 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs"
-import { Search, IndianRupee, TrendingUp, Calendar, Clock, Users, ShoppingBag, Plus } from "lucide-react"
+import {
+  Search,
+  IndianRupee,
+  TrendingUp,
+  Calendar,
+  Clock,
+  Users,
+  ShoppingBag,
+  Plus,
+  CheckCircle,
+  FileSpreadsheet,
+} from "lucide-react"
 import OrdersTable from "./orders-table"
 import ProductManagement from "./product-management"
 import { Button } from "@/components/ui/button"
+import { utils, write } from "xlsx"
 
-// Sample data for the orders with timestamps
+// Update the initialOrders data to remove "Paid" status and use the new statuses
 const initialOrders = [
   {
     id: "1",
@@ -18,7 +30,7 @@ const initialOrders = [
     email: "student1@college.edu",
     items: "Veg Burger, French Fries, Coke",
     amount: 250,
-    status: "Paid",
+    status: "Preparing the Order",
     orderDate: "2024-01-15",
     orderTime: "12:30 PM",
     timestamp: new Date("2024-01-15T12:30:00"),
@@ -29,7 +41,7 @@ const initialOrders = [
     email: "student2@college.edu",
     items: "Chicken Sandwich, Coffee",
     amount: 180,
-    status: "Delivered",
+    status: "Order Delivered",
     orderDate: "2024-01-15",
     orderTime: "01:15 PM",
     timestamp: new Date("2024-01-15T13:15:00"),
@@ -40,7 +52,7 @@ const initialOrders = [
     email: "professor@college.edu",
     items: "Veg Biryani, Raita, Water Bottle",
     amount: 220,
-    status: "Paid",
+    status: "Collect your order",
     orderDate: "2024-01-14",
     orderTime: "02:45 PM",
     timestamp: new Date("2024-01-14T14:45:00"),
@@ -51,7 +63,7 @@ const initialOrders = [
     email: "student3@college.edu",
     items: "Masala Dosa, Tea",
     amount: 120,
-    status: "Delivered",
+    status: "Order Delivered",
     orderDate: "2024-01-14",
     orderTime: "11:20 AM",
     timestamp: new Date("2024-01-14T11:20:00"),
@@ -62,7 +74,7 @@ const initialOrders = [
     email: "staff@college.edu",
     items: "Paneer Tikka, Naan, Lassi",
     amount: 350,
-    status: "Paid",
+    status: "Preparing the Order",
     orderDate: "2024-01-13",
     orderTime: "01:00 PM",
     timestamp: new Date("2024-01-13T13:00:00"),
@@ -73,7 +85,7 @@ const initialOrders = [
     email: "student4@college.edu",
     items: "Samosa, Chai",
     amount: 80,
-    status: "Delivered",
+    status: "Collect your order",
     orderDate: "2024-01-13",
     orderTime: "04:30 PM",
     timestamp: new Date("2024-01-13T16:30:00"),
@@ -84,7 +96,7 @@ const initialOrders = [
     email: "student5@college.edu",
     items: "Pasta, Garlic Bread, Cold Drink",
     amount: 280,
-    status: "Paid",
+    status: "Preparing the Order",
     orderDate: "2024-01-12",
     orderTime: "12:15 PM",
     timestamp: new Date("2024-01-12T12:15:00"),
@@ -121,16 +133,84 @@ export default function Dashboard({ onLogout }: DashboardProps) {
   const [searchQuery, setSearchQuery] = useState("")
   const [selectedMonth, setSelectedMonth] = useState("2024-01")
   const [activeTab, setActiveTab] = useState("orders")
+  const [isDownloading, setIsDownloading] = useState(false)
 
-  const handleMarkAsDelivered = (id: string) => {
-    setOrders(orders.map((order) => (order.id === id ? { ...order, status: "Delivered" } : order)))
+  // Replace the handleMarkAsDelivered function with handleStatusUpdate
+  const handleStatusUpdate = (id: string, newStatus: string) => {
+    setOrders(orders.map((order) => (order.id === id ? { ...order, status: newStatus } : order)))
+
+    // Simulate API call to mobile app to notify student
+    console.log(`Order ${id} status updated to: ${newStatus}`)
+    alert(`Order status updated! Students will be notified in the mobile app.`)
   }
 
   const filteredOrders = orders.filter((order) => order.tokenNumber.toLowerCase().includes(searchQuery.toLowerCase()))
 
   const currentMonthData = monthlyEarnings[selectedMonth]
-  const deliveredOrders = orders.filter((order) => order.status === "Delivered").length
-  const pendingOrders = orders.filter((order) => order.status === "Paid").length
+  // Update the stats calculations to use the new statuses
+  const deliveredOrders = orders.filter((order) => order.status === "Order Delivered").length
+  const preparingOrders = orders.filter((order) => order.status === "Preparing the Order").length
+  const readyOrders = orders.filter((order) => order.status === "Collect your order").length
+
+  const downloadDailyOrders = () => {
+    setIsDownloading(true)
+
+    try {
+      const today = new Date().toISOString().split("T")[0]
+      const todayOrders = orders.filter((order) => order.orderDate === today)
+
+      // Format data for Excel
+      const excelData = todayOrders.map((order) => ({
+        "Token Number": order.tokenNumber,
+        "User Email": order.email,
+        "Items Ordered": order.items,
+        "Amount (₹)": order.amount,
+        Date: order.orderDate,
+        Time: order.orderTime,
+        Status: order.status,
+      }))
+
+      // Create workbook and worksheet
+      const worksheet = utils.json_to_sheet(excelData)
+      const workbook = utils.book_new()
+      utils.book_append_sheet(workbook, worksheet, "Orders")
+
+      // Set column widths for better readability
+      const columnWidths = [
+        { wch: 12 }, // Token Number
+        { wch: 25 }, // User Email
+        { wch: 40 }, // Items Ordered
+        { wch: 12 }, // Amount
+        { wch: 12 }, // Date
+        { wch: 12 }, // Time
+        { wch: 20 }, // Status
+      ]
+      worksheet["!cols"] = columnWidths
+
+      // Generate Excel file
+      const excelBuffer = write(workbook, { bookType: "xlsx", type: "array" })
+
+      // Create and download file
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      })
+      const url = window.URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `canteen-orders-${today}.xlsx`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      window.URL.revokeObjectURL(url)
+
+      alert(`Downloaded ${todayOrders.length} orders for ${today} as Excel file`)
+    } catch (error) {
+      console.error("Error generating Excel file:", error)
+      alert("Error generating Excel file. Please try again.")
+    } finally {
+      setIsDownloading(false)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 pb-10">
@@ -206,29 +286,44 @@ export default function Dashboard({ onLogout }: DashboardProps) {
 
           <Card className="bg-gradient-to-r from-orange-500 to-orange-600 text-white border-0 shadow-lg">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-orange-100">Delivered Orders</CardTitle>
+              <CardTitle className="text-sm font-medium text-orange-100">Preparing Orders</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center">
-                <span className="text-3xl font-bold">{deliveredOrders}</span>
+                <Clock className="h-6 w-6 text-orange-100 mr-2" />
+                <span className="text-3xl font-bold">{preparingOrders}</span>
               </div>
               <div className="flex items-center mt-2 text-sm text-orange-100">
-                <span>Completed successfully</span>
+                <span>Currently being prepared</span>
               </div>
             </CardContent>
           </Card>
 
           <Card className="bg-gradient-to-r from-purple-500 to-purple-600 text-white border-0 shadow-lg">
             <CardHeader className="pb-2">
-              <CardTitle className="text-sm font-medium text-purple-100">Pending Orders</CardTitle>
+              <CardTitle className="text-sm font-medium text-purple-100">Ready for Collection</CardTitle>
             </CardHeader>
             <CardContent>
               <div className="flex items-center">
-                <Clock className="h-6 w-6 text-purple-100 mr-2" />
-                <span className="text-3xl font-bold">{pendingOrders}</span>
+                <span className="text-3xl font-bold">{readyOrders}</span>
               </div>
               <div className="flex items-center mt-2 text-sm text-purple-100">
-                <span>Awaiting delivery</span>
+                <span>Awaiting pickup</span>
+              </div>
+            </CardContent>
+          </Card>
+
+          <Card className="bg-gradient-to-r from-emerald-500 to-emerald-600 text-white border-0 shadow-lg">
+            <CardHeader className="pb-2">
+              <CardTitle className="text-sm font-medium text-emerald-100">Delivered Orders</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-center">
+                <CheckCircle className="h-6 w-6 text-emerald-100 mr-2" />
+                <span className="text-3xl font-bold">{deliveredOrders}</span>
+              </div>
+              <div className="flex items-center mt-2 text-sm text-emerald-100">
+                <span>Successfully completed</span>
               </div>
             </CardContent>
           </Card>
@@ -266,11 +361,32 @@ export default function Dashboard({ onLogout }: DashboardProps) {
             {/* Orders Table */}
             <Card className="shadow-sm">
               <CardHeader>
-                <CardTitle className="text-xl font-semibold text-gray-900">Recent Orders</CardTitle>
-                <p className="text-sm text-gray-500">Manage and track all canteen orders</p>
+                <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between">
+                  <div>
+                    <CardTitle className="text-xl font-semibold text-gray-900">Recent Orders</CardTitle>
+                    <p className="text-sm text-gray-500">Manage and track all canteen orders</p>
+                  </div>
+                  <Button
+                    onClick={downloadDailyOrders}
+                    className="mt-4 sm:mt-0 bg-green-600 hover:bg-green-700 text-white"
+                    disabled={isDownloading}
+                  >
+                    {isDownloading ? (
+                      <>
+                        <div className="h-4 w-4 mr-2 animate-spin rounded-full border-2 border-white border-t-transparent" />
+                        Generating Excel...
+                      </>
+                    ) : (
+                      <>
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        Download as Excel
+                      </>
+                    )}
+                  </Button>
+                </div>
               </CardHeader>
               <CardContent className="p-0">
-                <OrdersTable orders={filteredOrders} onMarkAsDelivered={handleMarkAsDelivered} />
+                <OrdersTable orders={filteredOrders} onStatusUpdate={handleStatusUpdate} />
               </CardContent>
             </Card>
           </TabsContent>
