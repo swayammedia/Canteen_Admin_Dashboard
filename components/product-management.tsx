@@ -6,91 +6,60 @@ import { useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
-import { Textarea } from "@/components/ui/textarea"
 import { Button } from "@/components/ui/button"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, Camera, Star, Clock } from "lucide-react"
+import { Plus, Edit, Trash2, Camera } from "lucide-react"
 
 interface Product {
   id: string
   name: string
-  description: string
   price: number
   category: string
   image: string
   isAvailable: boolean
-  preparationTime: number
   rating: number
-  isVeg: boolean
-  isSpicy: boolean
-  calories?: number
-  ingredients: string[]
 }
 
 const initialProducts: Product[] = [
   {
     id: "1",
     name: "Veg Burger",
-    description: "Delicious vegetarian burger with fresh vegetables and special sauce",
     price: 120,
     category: "Fast Food",
     image: "/placeholder.svg?height=200&width=200",
     isAvailable: true,
-    preparationTime: 15,
     rating: 4.5,
-    isVeg: true,
-    isSpicy: false,
-    calories: 350,
-    ingredients: ["Bun", "Vegetable Patty", "Lettuce", "Tomato", "Onion", "Special Sauce"],
   },
   {
     id: "2",
     name: "Chicken Sandwich",
-    description: "Grilled chicken sandwich with mayo and fresh vegetables",
     price: 150,
     category: "Fast Food",
     image: "/placeholder.svg?height=200&width=200",
     isAvailable: true,
-    preparationTime: 12,
     rating: 4.3,
-    isVeg: false,
-    isSpicy: false,
-    calories: 420,
-    ingredients: ["Bread", "Grilled Chicken", "Mayo", "Lettuce", "Tomato"],
   },
   {
     id: "3",
     name: "Masala Dosa",
-    description: "Traditional South Indian crispy dosa with spiced potato filling",
     price: 80,
     category: "South Indian",
     image: "/placeholder.svg?height=200&width=200",
     isAvailable: true,
-    preparationTime: 20,
     rating: 4.7,
-    isVeg: true,
-    isSpicy: true,
-    calories: 280,
-    ingredients: ["Rice Batter", "Potato", "Onion", "Spices", "Curry Leaves"],
   },
   {
     id: "4",
     name: "Paneer Tikka",
-    description: "Marinated cottage cheese cubes grilled to perfection",
     price: 180,
     category: "North Indian",
     image: "/placeholder.svg?height=200&width=200",
     isAvailable: false,
-    preparationTime: 25,
     rating: 4.6,
-    isVeg: true,
-    isSpicy: true,
-    calories: 320,
-    ingredients: ["Paneer", "Yogurt", "Spices", "Bell Peppers", "Onion"],
   },
 ]
 
@@ -106,14 +75,8 @@ export default function ProductManagement() {
   // Form state for adding/editing products
   const [formData, setFormData] = useState({
     name: "",
-    description: "",
     price: "",
     category: "",
-    preparationTime: "",
-    isVeg: true,
-    isSpicy: false,
-    calories: "",
-    ingredients: "",
     image: "",
   })
 
@@ -121,20 +84,11 @@ export default function ProductManagement() {
     const newProduct: Product = {
       id: Date.now().toString(),
       name: formData.name,
-      description: formData.description,
       price: Number.parseFloat(formData.price),
       category: formData.category,
       image: formData.image || "/placeholder.svg?height=200&width=200&query=" + encodeURIComponent(formData.name),
       isAvailable: true,
-      preparationTime: Number.parseInt(formData.preparationTime),
       rating: 0,
-      isVeg: formData.isVeg,
-      isSpicy: formData.isSpicy,
-      calories: formData.calories ? Number.parseInt(formData.calories) : undefined,
-      ingredients: formData.ingredients
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item),
     }
 
     setProducts([...products, newProduct])
@@ -150,14 +104,8 @@ export default function ProductManagement() {
     setEditingProduct(product)
     setFormData({
       name: product.name,
-      description: product.description,
       price: product.price.toString(),
       category: product.category,
-      preparationTime: product.preparationTime.toString(),
-      isVeg: product.isVeg,
-      isSpicy: product.isSpicy,
-      calories: product.calories?.toString() || "",
-      ingredients: product.ingredients.join(", "),
       image: product.image,
     })
     setIsAddDialogOpen(true)
@@ -169,17 +117,8 @@ export default function ProductManagement() {
     const updatedProduct: Product = {
       ...editingProduct,
       name: formData.name,
-      description: formData.description,
       price: Number.parseFloat(formData.price),
       category: formData.category,
-      preparationTime: Number.parseInt(formData.preparationTime),
-      isVeg: formData.isVeg,
-      isSpicy: formData.isSpicy,
-      calories: formData.calories ? Number.parseInt(formData.calories) : undefined,
-      ingredients: formData.ingredients
-        .split(",")
-        .map((item) => item.trim())
-        .filter((item) => item),
       image: formData.image || editingProduct.image,
     }
 
@@ -207,14 +146,8 @@ export default function ProductManagement() {
   const resetForm = () => {
     setFormData({
       name: "",
-      description: "",
       price: "",
       category: "",
-      preparationTime: "",
-      isVeg: true,
-      isSpicy: false,
-      calories: "",
-      ingredients: "",
       image: "",
     })
   }
@@ -279,85 +212,22 @@ export default function ProductManagement() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="description">Description</Label>
-                <Textarea
-                  id="description"
-                  value={formData.description}
-                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                  placeholder="Enter product description"
-                  rows={3}
-                />
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="category">Category</Label>
-                  <Select
-                    value={formData.category}
-                    onValueChange={(value) => setFormData({ ...formData, category: value })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Select category" />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {categories.map((category) => (
-                        <SelectItem key={category} value={category}>
-                          {category}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="prepTime">Preparation Time (minutes)</Label>
-                  <Input
-                    id="prepTime"
-                    type="number"
-                    value={formData.preparationTime}
-                    onChange={(e) => setFormData({ ...formData, preparationTime: e.target.value })}
-                    placeholder="Enter prep time"
-                  />
-                </div>
-              </div>
-
-              <div className="space-y-2">
-                <Label htmlFor="ingredients">Ingredients (comma-separated)</Label>
-                <Textarea
-                  id="ingredients"
-                  value={formData.ingredients}
-                  onChange={(e) => setFormData({ ...formData, ingredients: e.target.value })}
-                  placeholder="Enter ingredients separated by commas"
-                  rows={2}
-                />
-              </div>
-
-              <div className="grid grid-cols-3 gap-4">
-                <div className="space-y-2">
-                  <Label htmlFor="calories">Calories (optional)</Label>
-                  <Input
-                    id="calories"
-                    type="number"
-                    value={formData.calories}
-                    onChange={(e) => setFormData({ ...formData, calories: e.target.value })}
-                    placeholder="Enter calories"
-                  />
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="isVeg"
-                    checked={formData.isVeg}
-                    onCheckedChange={(checked) => setFormData({ ...formData, isVeg: checked })}
-                  />
-                  <Label htmlFor="isVeg">Vegetarian</Label>
-                </div>
-                <div className="flex items-center space-x-2">
-                  <Switch
-                    id="isSpicy"
-                    checked={formData.isSpicy}
-                    onCheckedChange={(checked) => setFormData({ ...formData, isSpicy: checked })}
-                  />
-                  <Label htmlFor="isSpicy">Spicy</Label>
-                </div>
+                <Label htmlFor="category">Category</Label>
+                <Select
+                  value={formData.category}
+                  onValueChange={(value) => setFormData({ ...formData, category: value })}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select category" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {categories.map((category) => (
+                      <SelectItem key={category} value={category}>
+                        {category}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
               </div>
 
               <div className="space-y-2">
@@ -438,7 +308,6 @@ export default function ProductManagement() {
                   <TableHead>Product</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Price</TableHead>
-                  <TableHead>Details</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -455,7 +324,6 @@ export default function ProductManagement() {
                         />
                         <div>
                           <div className="font-medium">{product.name}</div>
-                          <div className="text-sm text-gray-500 max-w-xs truncate">{product.description}</div>
                         </div>
                       </div>
                     </TableCell>
@@ -463,22 +331,6 @@ export default function ProductManagement() {
                       <Badge variant="outline">{product.category}</Badge>
                     </TableCell>
                     <TableCell className="font-semibold">₹{product.price}</TableCell>
-                    <TableCell>
-                      <div className="flex flex-wrap gap-1">
-                        {product.isVeg && <Badge className="bg-green-100 text-green-800">Veg</Badge>}
-                        {product.isSpicy && <Badge className="bg-red-100 text-red-800">Spicy</Badge>}
-                        <div className="flex items-center text-sm text-gray-500">
-                          <Clock className="h-3 w-3 mr-1" />
-                          {product.preparationTime}m
-                        </div>
-                        {product.rating > 0 && (
-                          <div className="flex items-center text-sm text-gray-500">
-                            <Star className="h-3 w-3 mr-1 fill-yellow-400 text-yellow-400" />
-                            {product.rating}
-                          </div>
-                        )}
-                      </div>
-                    </TableCell>
                     <TableCell>
                       <div className="flex items-center space-x-2">
                         <Switch checked={product.isAvailable} onCheckedChange={() => toggleAvailability(product.id)} />
