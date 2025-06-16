@@ -6,28 +6,7 @@ import { Calendar, Clock, Search, ChefHat, Package, CheckCircle } from "lucide-r
 import { useState } from "react"
 import { db } from "@/lib/firebase"
 import { doc, updateDoc, Timestamp } from "firebase/firestore"
-
-interface Item {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  categoryId: string;
-  categoryName: string;
-  imageUrl: string;
-  qty: number;
-  defaultOrderStatus: string;
-}
-
-interface Order {
-  id: string;
-  userId: string;
-  items: Item[];
-  totalAmount: number;
-  timestamp: Timestamp;
-  status: string;
-}
+import { Item, Order } from "@/types/common-interfaces"
 
 interface OrdersTableProps {
   orders: Order[];
@@ -36,19 +15,19 @@ interface OrdersTableProps {
 
 const statusOptions = [
   {
-    value: "Preparing the Order",
+    value: "Preparing",
     label: "Preparing the Order",
     color: "bg-yellow-100 text-yellow-800 border-yellow-300",
     icon: ChefHat,
   },
   {
-    value: "Collect your order",
+    value: "Ready",
     label: "Collect your order",
     color: "bg-blue-100 text-blue-800 border-blue-300",
     icon: Package,
   },
   {
-    value: "Order Delivered",
+    value: "Delivered",
     label: "Order Delivered",
     color: "bg-green-100 text-green-800 border-green-300",
     icon: CheckCircle,
@@ -95,13 +74,12 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
               <TableHead className="font-semibold text-gray-700">Date</TableHead>
               <TableHead className="font-semibold text-gray-700">Time</TableHead>
               <TableHead className="font-semibold text-gray-700">Status</TableHead>
-              <TableHead className="font-semibold text-gray-700">Update Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {orders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center text-gray-500">
                     <Search className="h-12 w-12 mb-4 text-gray-300" />
                     <p className="text-lg font-medium">No orders found</p>
@@ -140,23 +118,14 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`${statusConfig.color} font-medium flex items-center gap-1 w-fit`}
-                      >
-                        <StatusIcon className="h-3 w-3" />
-                        {statusConfig.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
                       <div className="flex items-center gap-2">
                         <Select
                           value={order.status}
                           onValueChange={(newStatus) => handleStatusChange(order.id, newStatus)}
                           disabled={isUpdating}
                         >
-                          <SelectTrigger className="w-48">
-                            <SelectValue />
+                          <SelectTrigger className={`w-48 ${statusConfig.color}`}>
+                            <SelectValue>{statusConfig.label}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {statusOptions.map((option) => {

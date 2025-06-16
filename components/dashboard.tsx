@@ -83,21 +83,15 @@ export default function Dashboard({ /* onLogout */ }: {}) {
         const itemsPromises = Array.isArray(data.items) ? data.items.map(async (item: any) => {
           let resolvedCategoryId = item.categoryId || '';
           let resolvedCategoryName = item.categoryName || '';
+          let fetchedItemData: any = null; // Initialize to null
 
           if (!resolvedCategoryId && !item.categoryRef && item.id) {
             try {
               const itemDoc = await getDoc(doc(db, "items", item.id));
               if (itemDoc.exists()) {
-                const itemDataFromFirestore = itemDoc.data();
-                resolvedCategoryId = itemDataFromFirestore.categoryId || itemDataFromFirestore.category?.toLowerCase().replace(/\s/g, '') || '';
-                resolvedCategoryName = itemDataFromFirestore.categoryName || itemDataFromFirestore.category || '';
-                // Assign fetched itemData for direct use below
-                Object.assign(item, {
-                  description: itemDataFromFirestore.description || '',
-                  category: resolvedCategoryName,
-                  imageUrl: itemDataFromFirestore.imageUrl || '',
-                  defaultOrderStatus: itemDataFromFirestore.defaultOrderStatus || 'Preparing',
-                });
+                fetchedItemData = itemDoc.data(); // Assign data if doc exists
+                resolvedCategoryId = fetchedItemData.categoryId || fetchedItemData.category?.toLowerCase().replace(/\s/g, '') || '';
+                resolvedCategoryName = fetchedItemData.categoryName || fetchedItemData.category || '';
               }
             } catch (error) {
               console.error("Error fetching item details for order item:", item.id, error);
@@ -105,17 +99,17 @@ export default function Dashboard({ /* onLogout */ }: {}) {
           }
 
           return {
-            id: item.id || '',
-            name: item.name || '',
-            description: item.description || '', // Use item.description after potential assignment
-            price: item.price || 0,
-            category: resolvedCategoryName,
-            categoryId: resolvedCategoryId,
-            categoryName: resolvedCategoryName,
-            imageUrl: item.imageUrl || '', // Use item.imageUrl after potential assignment
-            qty: item.qty || 0,
-            defaultOrderStatus: item.defaultOrderStatus || 'Preparing', // Use item.defaultOrderStatus after potential assignment
-            categoryRef: item.categoryRef || undefined,
+            id: item.id || fetchedItemData?.id || '',
+            name: item.name || fetchedItemData?.name || '',
+            description: item.description || fetchedItemData?.description || '',
+            price: item.price || fetchedItemData?.price || 0,
+            category: resolvedCategoryName || item.category || fetchedItemData?.category || '',
+            categoryId: resolvedCategoryId || item.categoryId || fetchedItemData?.categoryId || '',
+            categoryName: resolvedCategoryName || item.categoryName || fetchedItemData?.categoryName || '',
+            imageUrl: item.imageUrl || fetchedItemData?.imageUrl || '',
+            qty: item.qty || fetchedItemData?.qty || 0,
+            defaultOrderStatus: item.defaultOrderStatus || fetchedItemData?.defaultOrderStatus || 'Preparing',
+            categoryRef: item.categoryRef || fetchedItemData?.categoryRef || undefined,
           };
         }) : [];
 
@@ -127,7 +121,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
           items: items,
           totalAmount: data.totalAmount || 0,
           timestamp: data.timestamp instanceof Timestamp ? data.timestamp : new Timestamp(0, 0),
-          status: data.status || '',
+          status: data.status || 'Preparing the Order',
           collectionTimeSlot: data.collectionTimeSlot || undefined,
           blockUntil: data.blockUntil || undefined,
         };
@@ -206,9 +200,9 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
   const currentMonthData = monthlyEarningsData[selectedMonth]
 
-  const deliveredOrders = orders.filter((order) => order.status === "Order Delivered").length
-  const preparingOrders = orders.filter((order) => order.status === "Preparing the Order").length
-  const readyOrders = orders.filter((order) => order.status === "Collect your order").length
+  const deliveredOrders = orders.filter((order) => order.status === "Delivered").length
+  const preparingOrders = orders.filter((order) => order.status === "Preparing").length
+  const readyOrders = orders.filter((order) => order.status === "Ready").length
 
   const downloadDailyOrders = () => {
     setIsDownloading(true)
