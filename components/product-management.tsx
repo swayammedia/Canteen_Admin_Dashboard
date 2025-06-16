@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Switch } from "@/components/ui/switch"
 import { Plus, Edit, Trash2, Camera, Search } from "lucide-react"
 import { db } from "@/lib/firebase"
-import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, DocumentReference } from "firebase/firestore"
+import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, DocumentReference, getDoc } from "firebase/firestore"
 
 interface Item {
   id: string;
@@ -28,6 +28,7 @@ interface Item {
   quantity: number;
   categoryRef?: DocumentReference; // Optional, as it might not always be present or needed for display
   defaultOrderStatus: string;
+  isAvailable: boolean;
 }
 
 interface Category {
@@ -60,8 +61,12 @@ export default function ProductManagement() {
   const [searchQuery, setSearchQuery] = useState("");
   const [selectedCategory, setSelectedCategory] = useState("all");
 
+  // Log selectedCategory change
+  useEffect(() => {
+  }, [selectedCategory]);
+
   // Form state for adding/editing products
-  const [formData, setFormData] = useState<Omit<Item, "id" | "quantity" | "defaultOrderStatus"> & { price: string }>({ // price as string for input
+  const [formData, setFormData] = useState<Omit<Item, "id" | "quantity" | "defaultOrderStatus" | "isAvailable"> & { price: string }>({ // price as string for input
     name: "",
     description: "",
     price: "",
@@ -85,10 +90,46 @@ export default function ProductManagement() {
     const fetchProducts = async () => {
       const itemsCol = collection(db, "items");
       const itemSnapshot = await getDocs(itemsCol);
-      const itemList = itemSnapshot.docs.map((doc) => ({
-        id: doc.id,
-        ...doc.data(),
-      })) as Item[];
+      const itemListPromises = itemSnapshot.docs.map(async (docRef) => {
+        const data = docRef.data();
+        let categoryId = data.categoryId ?? '';
+        let categoryName = data.categoryName ?? '';
+
+        // If categoryId is missing or empty, try to get it from categoryRef or normalize categoryName
+        if (!categoryId || categoryId === '') {
+          if (data.categoryRef) {
+            try {
+              const categoryDoc = await getDoc(data.categoryRef);
+              if (categoryDoc.exists()) {
+                categoryId = categoryDoc.id;
+                categoryName = categoryDoc.data().name || '';
+              }
+            } catch (error) {
+              console.error("Error fetching category from reference:", data.categoryRef.path, error);
+            }
+          } else if (categoryName) {
+            // Fallback: if categoryId is still empty but categoryName exists, use normalized categoryName as ID
+            categoryId = categoryName.toLowerCase().replace(/\s/g, '');
+          }
+        }
+
+        return {
+          id: docRef.id,
+          name: data.name,
+          description: data.description ?? '',
+          price: data.price,
+          category: categoryName, // Use resolved categoryName
+          categoryId: categoryId, // Use resolved categoryId
+          categoryName: categoryName, // Use resolved categoryName
+          imageUrl: data.imageUrl,
+          quantity: data.quantity,
+          defaultOrderStatus: data.defaultOrderStatus,
+          isAvailable: data.hasOwnProperty('isAvailable') ? data.isAvailable : true,
+          categoryRef: data.categoryRef || undefined,
+        };
+      });
+
+      const itemList = await Promise.all(itemListPromises);
       setProducts(itemList);
     };
 
@@ -217,10 +258,13 @@ export default function ProductManagement() {
 
   const filteredProducts = products.filter((product) => {
     const matchesSearch =
+      searchQuery === "" ||
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesCategory = selectedCategory === "all" || product.categoryId === selectedCategory;
+      product.description.toLowerCase().includes(searchQuery.toLowerCase());
+
+    const matchesCategory =
+      selectedCategory === "all" || product.categoryId === selectedCategory;
+
     return matchesSearch && matchesCategory;
   });
 
@@ -364,9 +408,14 @@ export default function ProductManagement() {
             onChange={(e) => setSearchQuery(e.target.value)}
           />
         </div>
-        <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-          <SelectTrigger className="w-full sm:w-[180px]">
-            <SelectValue placeholder="Filter by category" />
+        <Select
+          value={selectedCategory}
+          onValueChange={(value) => {
+            setSelectedCategory(value);
+          }}
+        >
+          <SelectTrigger className="w-48">
+            <SelectValue placeholder="Select a category" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>

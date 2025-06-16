@@ -6,4 +6,16 @@ match /orders/{orderId} {
   // For now, if you just want to get it working, you could temporarily allow write for all auth users:
   allow update: if request.auth != null; // TEMPORARY: Allows any authenticated user to update orders. NOT FOR PRODUCTION WITHOUT ADMIN CHECK!
   // allow create, update, delete: if request.auth != null; // NOT RECOMMENDED FOR PRODUCTION
+}
+
+// You might also need rules for your 'categories' collection
+match /categories/{categoryId} {
+  allow read: if true; // Or 'if request.auth != null;' if categories are only for authenticated users
+  allow create, update, delete: if request.auth != null; // TEMPORARY: Allows any authenticated user to manage categories.
+  // allow write: if request.auth != null && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.isAdmin == true; // Example for admin-only write
+}
+
+// Rule for the 'items' collection
+match /items/{itemId} {
+  allow read, create, update, delete: if request.auth != null; // TEMPORARY: Allows any authenticated user to manage items.
 } 
