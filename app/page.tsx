@@ -3,27 +3,18 @@
 import { useState } from "react"
 import PasswordGate from "@/components/password-gate"
 import Dashboard from "@/components/dashboard"
+import { useAuth } from "@/hooks/useAuth"
 
 export default function Home() {
-  const [isAuthenticated, setIsAuthenticated] = useState(false)
+  const { user, loading } = useAuth()
 
-  const handleLogin = (password: string) => {
-    // For demo purposes, using a simple password check
-    // In a real app, you would validate against a secure backend
-    if (password === "admin123") {
-      setIsAuthenticated(true)
-    } else {
-      alert("Incorrect password. Please try again.")
-    }
-  }
-
-  const handleLogout = () => {
-    setIsAuthenticated(false)
+  if (loading) {
+    return <div>Loading...</div>
   }
 
   return (
     <main className="min-h-screen bg-gray-50">
-      {!isAuthenticated ? <PasswordGate onLogin={handleLogin} /> : <Dashboard onLogout={handleLogout} />}
+      {!user ? <PasswordGate /> : <Dashboard />}
     </main>
   )
 }

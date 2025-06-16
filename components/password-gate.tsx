@@ -6,18 +6,28 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { Lock, Shield } from "lucide-react"
+import { Lock, Shield, Mail } from "lucide-react"
+import { useAuth } from "@/hooks/useAuth"
 
-interface PasswordGateProps {
-  onLogin: (password: string) => void
-}
-
-export default function PasswordGate({ onLogin }: PasswordGateProps) {
+export default function PasswordGate() {
+  const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
+  const [isLogin, setIsLogin] = useState(true) // true for login, false for signup
+  const [error, setError] = useState<string | null>(null)
+  const { signIn, signUp } = useAuth()
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-    onLogin(password)
+    setError(null)
+    try {
+      if (isLogin) {
+        await signIn(email, password)
+      } else {
+        await signUp(email, password)
+      }
+    } catch (err: any) {
+      setError(err.message)
+    }
   }
 
   return (
@@ -34,11 +44,25 @@ export default function PasswordGate({ onLogin }: PasswordGateProps) {
           <form onSubmit={handleSubmit} className="space-y-6">
             <div className="space-y-2">
               <div className="relative">
+                <Mail className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
+                <Input
+                  id="email"
+                  type="email"
+                  placeholder="Enter your email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="pl-10 h-12 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
+                  required
+                />
+              </div>
+            </div>
+            <div className="space-y-2">
+              <div className="relative">
                 <Lock className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
                 <Input
                   id="password"
                   type="password"
-                  placeholder="Enter Admin Password"
+                  placeholder="Enter your password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
                   className="pl-10 h-12 border-gray-200 focus:border-blue-500 focus:ring-blue-500"
@@ -46,14 +70,22 @@ export default function PasswordGate({ onLogin }: PasswordGateProps) {
                 />
               </div>
             </div>
+            {error && <p className="text-red-500 text-sm text-center">{error}</p>}
             <Button
               type="submit"
               className="w-full h-12 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
             >
-              Access Dashboard
+              {isLogin ? "Sign In" : "Sign Up"}
+            </Button>
+            <Button
+              type="button"
+              onClick={() => setIsLogin(!isLogin)}
+              variant="link"
+              className="w-full text-blue-600 hover:underline"
+            >
+              {isLogin ? "Need an account? Sign Up" : "Already have an account? Sign In"}
             </Button>
           </form>
-          {/* Demo password text removed */}
         </CardContent>
       </Card>
     </div>

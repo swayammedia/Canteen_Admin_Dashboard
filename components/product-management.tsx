@@ -2,7 +2,7 @@
 
 import type React from "react"
 
-import { useState } from "react"
+import { useEffect, useState } from "react"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,162 +12,226 @@ import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
 import { Switch } from "@/components/ui/switch"
-import { Plus, Edit, Trash2, Camera } from "lucide-react"
+import { Plus, Edit, Trash2, Camera, Search } from "lucide-react"
+import { db } from "@/lib/firebase"
+import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, DocumentReference } from "firebase/firestore"
 
-interface Product {
-  id: string
-  name: string
-  price: number
-  category: string
-  image: string
-  isAvailable: boolean
-  rating: number
+interface Item {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  category: string;
+  categoryId: string;
+  categoryName: string;
+  imageUrl: string;
+  quantity: number;
+  categoryRef?: DocumentReference; // Optional, as it might not always be present or needed for display
+  defaultOrderStatus: string;
 }
 
-const initialProducts: Product[] = [
-  {
-    id: "1",
-    name: "Veg Burger",
-    price: 120,
-    category: "Fast Food",
-    image: "/placeholder.svg?height=200&width=200",
-    isAvailable: true,
-    rating: 4.5,
-  },
-  {
-    id: "2",
-    name: "Chicken Sandwich",
-    price: 150,
-    category: "Fast Food",
-    image: "/placeholder.svg?height=200&width=200",
-    isAvailable: true,
-    rating: 4.3,
-  },
-  {
-    id: "3",
-    name: "Masala Dosa",
-    price: 80,
-    category: "South Indian",
-    image: "/placeholder.svg?height=200&width=200",
-    isAvailable: true,
-    rating: 4.7,
-  },
-  {
-    id: "4",
-    name: "Paneer Tikka",
-    price: 180,
-    category: "North Indian",
-    image: "/placeholder.svg?height=200&width=200",
-    isAvailable: false,
-    rating: 4.6,
-  },
-]
+interface Category {
+  id: string;
+  name: string;
+}
 
-const categories = ["Fast Food", "South Indian", "North Indian", "Beverages", "Desserts", "Snacks"]
+// const initialProducts: Item[] = [
+//   {
+//     id: "1",
+//     name: "Veg Burger",
+//     description: "",
+//     price: 120,
+//     category: "Fast Food",
+//     categoryId: "",
+//     categoryName: "Fast Food",
+//     imageUrl: "/placeholder.svg?height=200&width=200",
+//     quantity: 1,
+//     defaultOrderStatus: "Preparing",
+//   },
+// ];
+
+// const categories = ["Fast Food", "South Indian", "North Indian", "Beverages", "Desserts", "Snacks"];
 
 export default function ProductManagement() {
-  const [products, setProducts] = useState<Product[]>(initialProducts)
-  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false)
-  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
-  const [searchQuery, setSearchQuery] = useState("")
-  const [selectedCategory, setSelectedCategory] = useState("all")
+  const [products, setProducts] = useState<Item[]>([]);
+  const [categories, setCategories] = useState<Category[]>([]);
+  const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
+  const [editingProduct, setEditingProduct] = useState<Item | null>(null);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [selectedCategory, setSelectedCategory] = useState("all");
 
   // Form state for adding/editing products
-  const [formData, setFormData] = useState({
+  const [formData, setFormData] = useState<Omit<Item, "id" | "quantity" | "defaultOrderStatus"> & { price: string }>({ // price as string for input
     name: "",
+    description: "",
     price: "",
-    category: "",
-    image: "",
-  })
+    category: "", // This will store the category ID
+    categoryId: "",
+    categoryName: "",
+    imageUrl: "",
+  });
 
-  const handleAddProduct = () => {
-    const newProduct: Product = {
-      id: Date.now().toString(),
-      name: formData.name,
-      price: Number.parseFloat(formData.price),
-      category: formData.category,
-      image: formData.image || "/placeholder.svg?height=200&width=200&query=" + encodeURIComponent(formData.name),
-      isAvailable: true,
-      rating: 0,
+  useEffect(() => {
+    const fetchCategories = async () => {
+      const categoriesCol = collection(db, "categories");
+      const categorySnapshot = await getDocs(categoriesCol);
+      const categoryList = categorySnapshot.docs.map((doc) => ({
+        id: doc.id,
+        name: doc.data().name,
+      })) as Category[];
+      setCategories(categoryList);
+    };
+
+    const fetchProducts = async () => {
+      const itemsCol = collection(db, "items");
+      const itemSnapshot = await getDocs(itemsCol);
+      const itemList = itemSnapshot.docs.map((doc) => ({
+        id: doc.id,
+        ...doc.data(),
+      })) as Item[];
+      setProducts(itemList);
+    };
+
+    fetchCategories();
+    fetchProducts();
+  }, []);
+
+  const handleAddProduct = async () => {
+    // Find the selected category name and ref based on the categoryId in formData
+    const selectedCat = categories.find(cat => cat.id === formData.category);
+    if (!selectedCat) {
+      alert("Please select a valid category.");
+      return;
     }
 
-    setProducts([...products, newProduct])
-    setIsAddDialogOpen(false)
-    resetForm()
+    try {
+      const newItemData = {
+        name: formData.name,
+        description: formData.description,
+        price: Number.parseFloat(formData.price),
+        category: selectedCat.name, // Storing category name
+        categoryId: selectedCat.id, // Storing category ID
+        categoryName: selectedCat.name,
+        imageUrl: formData.imageUrl || "/placeholder.svg?height=200&width=200&query=" + encodeURIComponent(formData.name),
+        quantity: 1, // Default quantity
+        defaultOrderStatus: "Preparing",
+        categoryRef: doc(db, "categories", selectedCat.id), // Firestore DocumentReference
+      };
 
-    // Simulate API call to mobile app
-    console.log("Product added to mobile app:", newProduct)
-    alert("Product successfully added to mobile app!")
-  }
+      const docRef = await addDoc(collection(db, "items"), newItemData);
+      setProducts(prev => [...prev, { id: docRef.id, ...newItemData }]);
+      setIsAddDialogOpen(false);
+      resetForm();
+      alert("Product successfully added!");
+    } catch (error) {
+      console.error("Error adding product:", error);
+      alert("Error adding product. Please try again.");
+    }
+  };
 
-  const handleEditProduct = (product: Product) => {
-    setEditingProduct(product)
+  const handleEditProduct = (product: Item) => {
+    setEditingProduct(product);
     setFormData({
       name: product.name,
+      description: product.description,
       price: product.price.toString(),
-      category: product.category,
-      image: product.image,
-    })
-    setIsAddDialogOpen(true)
-  }
+      category: product.categoryId, // Set the category ID for the select input
+      categoryId: product.categoryId,
+      categoryName: product.categoryName,
+      imageUrl: product.imageUrl,
+    });
+    setIsAddDialogOpen(true);
+  };
 
-  const handleUpdateProduct = () => {
-    if (!editingProduct) return
+  const handleUpdateProduct = async () => {
+    if (!editingProduct) return;
 
-    const updatedProduct: Product = {
-      ...editingProduct,
-      name: formData.name,
-      price: Number.parseFloat(formData.price),
-      category: formData.category,
-      image: formData.image || editingProduct.image,
+    const selectedCat = categories.find(cat => cat.id === formData.category);
+    if (!selectedCat) {
+      alert("Please select a valid category.");
+      return;
     }
 
-    setProducts(products.map((p) => (p.id === editingProduct.id ? updatedProduct : p)))
-    setIsAddDialogOpen(false)
-    setEditingProduct(null)
-    resetForm()
+    try {
+      const updatedItemData = {
+        name: formData.name,
+        description: formData.description,
+        price: Number.parseFloat(formData.price),
+        category: selectedCat.name,
+        categoryId: selectedCat.id,
+        categoryName: selectedCat.name,
+        imageUrl: formData.imageUrl || editingProduct.imageUrl,
+        categoryRef: doc(db, "categories", selectedCat.id), // Ensure correct reference
+      };
 
-    console.log("Product updated in mobile app:", updatedProduct)
-    alert("Product successfully updated in mobile app!")
-  }
+      const itemDocRef = doc(db, "items", editingProduct.id);
+      await updateDoc(itemDocRef, updatedItemData);
 
-  const handleDeleteProduct = (id: string) => {
+      setProducts(prev => prev.map(p => (p.id === editingProduct.id ? { ...p, ...updatedItemData, id: p.id } : p)));
+      setIsAddDialogOpen(false);
+      setEditingProduct(null);
+      resetForm();
+      alert("Product successfully updated!");
+    } catch (error) {
+      console.error("Error updating product:", error);
+      alert("Error updating product. Please try again.");
+    }
+  };
+
+  const handleDeleteProduct = async (id: string) => {
     if (confirm("Are you sure you want to delete this product?")) {
-      setProducts(products.filter((p) => p.id !== id))
-      console.log("Product removed from mobile app:", id)
-      alert("Product successfully removed from mobile app!")
+      try {
+        await deleteDoc(doc(db, "items", id));
+        setProducts(prev => prev.filter(p => p.id !== id));
+        alert("Product successfully removed!");
+      } catch (error) {
+        console.error("Error deleting product:", error);
+        alert("Error removing product. Please try again.");
+      }
     }
-  }
+  };
 
-  const toggleAvailability = (id: string) => {
-    setProducts(products.map((p) => (p.id === id ? { ...p, isAvailable: !p.isAvailable } : p)))
-  }
+  const toggleAvailability = async (id: string, currentAvailability: boolean) => {
+    try {
+      const itemDocRef = doc(db, "items", id);
+      await updateDoc(itemDocRef, { isAvailable: !currentAvailability });
+      setProducts(prev => prev.map(p => (p.id === id ? { ...p, isAvailable: !currentAvailability } : p)));
+      alert("Product availability updated!");
+    } catch (error) {
+      console.error("Error toggling availability:", error);
+      alert("Error updating product availability. Please try again.");
+    }
+  };
 
   const resetForm = () => {
     setFormData({
       name: "",
+      description: "",
       price: "",
       category: "",
-      image: "",
-    })
-  }
+      categoryId: "",
+      categoryName: "",
+      imageUrl: "",
+    });
+  };
 
   const filteredProducts = products.filter((product) => {
     const matchesSearch =
       product.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      product.category.toLowerCase().includes(searchQuery.toLowerCase())
-    const matchesCategory = selectedCategory === "all" || product.category === selectedCategory
-    return matchesSearch && matchesCategory
-  })
+      product.description.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      product.categoryName.toLowerCase().includes(searchQuery.toLowerCase());
+    const matchesCategory = selectedCategory === "all" || product.categoryId === selectedCategory;
+    return matchesSearch && matchesCategory;
+  });
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
+    const file = e.target.files?.[0];
     if (file) {
-      // In a real app, you would upload to a cloud service
-      const imageUrl = URL.createObjectURL(file)
-      setFormData({ ...formData, image: imageUrl })
+      // In a real app, you would upload to a cloud service like Firebase Storage
+      const imageUrl = URL.createObjectURL(file);
+      setFormData({ ...formData, imageUrl: imageUrl });
     }
-  }
+  };
 
   return (
     <div className="space-y-6">
@@ -212,18 +276,31 @@ export default function ProductManagement() {
               </div>
 
               <div className="space-y-2">
+                <Label htmlFor="description">Description</Label>
+                <Input
+                  id="description"
+                  value={formData.description}
+                  onChange={(e) => setFormData({ ...formData, description: e.target.value })}
+                  placeholder="Enter product description"
+                />
+              </div>
+
+              <div className="space-y-2">
                 <Label htmlFor="category">Category</Label>
                 <Select
                   value={formData.category}
-                  onValueChange={(value) => setFormData({ ...formData, category: value })}
+                  onValueChange={(value) => {
+                    const selectedCat = categories.find(cat => cat.id === value);
+                    setFormData({ ...formData, category: value, categoryId: value, categoryName: selectedCat?.name || "" });
+                  }}
                 >
                   <SelectTrigger>
                     <SelectValue placeholder="Select category" />
                   </SelectTrigger>
                   <SelectContent>
                     {categories.map((category) => (
-                      <SelectItem key={category} value={category}>
-                        {category}
+                      <SelectItem key={category.id} value={category.id}>
+                        {category.name}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -231,131 +308,141 @@ export default function ProductManagement() {
               </div>
 
               <div className="space-y-2">
-                <Label htmlFor="image">Product Image</Label>
+                <Label htmlFor="image">Product Image URL</Label>
+                <Input
+                  id="image"
+                  type="text"
+                  value={formData.imageUrl}
+                  onChange={(e) => setFormData({ ...formData, imageUrl: e.target.value })}
+                  placeholder="Enter image URL or upload"
+                />
                 <div className="flex items-center space-x-2">
-                  <Input id="image" type="file" accept="image/*" onChange={handleImageUpload} className="flex-1" />
+                  <Input id="file-image" type="file" accept="image/*" onChange={handleImageUpload} className="flex-1" />
                   <Button type="button" variant="outline" size="sm">
                     <Camera className="h-4 w-4 mr-2" />
                     Upload
                   </Button>
                 </div>
-                {formData.image && (
+                {formData.imageUrl && (
                   <div className="mt-2">
                     <img
-                      src={formData.image || "/placeholder.svg"}
+                      src={formData.imageUrl || "/placeholder.svg"}
                       alt="Preview"
                       className="w-20 h-20 object-cover rounded-md"
                     />
                   </div>
                 )}
               </div>
-
-              <div className="flex justify-end space-x-2 pt-4">
-                <Button
-                  variant="outline"
-                  onClick={() => {
-                    setIsAddDialogOpen(false)
-                    setEditingProduct(null)
-                    resetForm()
-                  }}
-                >
-                  Cancel
-                </Button>
-                <Button onClick={editingProduct ? handleUpdateProduct : handleAddProduct}>
-                  {editingProduct ? "Update Product" : "Add Product"}
-                </Button>
-              </div>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setIsAddDialogOpen(false);
+                  setEditingProduct(null);
+                  resetForm();
+                }}
+              >
+                Cancel
+              </Button>
+              <Button onClick={editingProduct ? handleUpdateProduct : handleAddProduct}>
+                {editingProduct ? "Save Changes" : "Add Product"}
+              </Button>
             </div>
           </DialogContent>
         </Dialog>
       </div>
 
-      {/* Filters */}
+      {/* Search and Category Filter */}
       <div className="flex flex-col sm:flex-row gap-4">
-        <div className="flex-1">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-5 w-5" />
           <Input
             placeholder="Search products..."
+            className="pl-10"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
-            className="w-full"
           />
         </div>
         <Select value={selectedCategory} onValueChange={setSelectedCategory}>
-          <SelectTrigger className="w-48">
+          <SelectTrigger className="w-full sm:w-[180px]">
             <SelectValue placeholder="Filter by category" />
           </SelectTrigger>
           <SelectContent>
             <SelectItem value="all">All Categories</SelectItem>
             {categories.map((category) => (
-              <SelectItem key={category} value={category}>
-                {category}
+              <SelectItem key={category.id} value={category.id}>
+                {category.name}
               </SelectItem>
             ))}
           </SelectContent>
         </Select>
       </div>
 
-      {/* Products Table */}
+      {/* Product Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Products ({filteredProducts.length})</CardTitle>
+          <CardTitle>All Products</CardTitle>
         </CardHeader>
-        <CardContent className="p-0">
+        <CardContent>
           <div className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Product</TableHead>
+                  <TableHead>Image</TableHead>
+                  <TableHead>Name</TableHead>
                   <TableHead>Category</TableHead>
                   <TableHead>Price</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Actions</TableHead>
+                  <TableHead>Availability</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {filteredProducts.map((product) => (
-                  <TableRow key={product.id}>
-                    <TableCell>
-                      <div className="flex items-center space-x-3">
+                {filteredProducts.length > 0 ? (
+                  filteredProducts.map((product) => (
+                    <TableRow key={product.id}>
+                      <TableCell>
                         <img
-                          src={product.image || "/placeholder.svg"}
+                          src={product.imageUrl || "/placeholder.svg"}
                           alt={product.name}
-                          className="w-12 h-12 rounded-md object-cover"
+                          className="w-12 h-12 object-cover rounded-md"
                         />
-                        <div>
-                          <div className="font-medium">{product.name}</div>
-                        </div>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <Badge variant="outline">{product.category}</Badge>
-                    </TableCell>
-                    <TableCell className="font-semibold">₹{product.price}</TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <Switch checked={product.isAvailable} onCheckedChange={() => toggleAvailability(product.id)} />
-                        <span className={`text-sm ${product.isAvailable ? "text-green-600" : "text-red-600"}`}>
-                          {product.isAvailable ? "Available" : "Unavailable"}
-                        </span>
-                      </div>
-                    </TableCell>
-                    <TableCell>
-                      <div className="flex items-center space-x-2">
-                        <Button variant="outline" size="sm" onClick={() => handleEditProduct(product)}>
+                      </TableCell>
+                      <TableCell className="font-medium">
+                        {product.name}
+                        <p className="text-sm text-gray-500">{product.description}</p>
+                      </TableCell>
+                      <TableCell>{product.categoryName}</TableCell>
+                      <TableCell>₹{product.price.toFixed(2)}</TableCell>
+                      <TableCell>
+                        <Badge variant={product.quantity > 0 ? "default" : "destructive"}>
+                          {product.quantity > 0 ? "Available" : "Unavailable"}
+                        </Badge>
+                        <Switch
+                          checked={product.quantity > 0}
+                          onCheckedChange={() => toggleAvailability(product.id, product.quantity > 0)}
+                          className="ml-2"
+                        />
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <Button variant="ghost" size="icon" onClick={() => handleEditProduct(product)}>
                           <Edit className="h-4 w-4" />
+                          <span className="sr-only">Edit</span>
                         </Button>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={() => handleDeleteProduct(product.id)}
-                          className="text-red-600 hover:text-red-700"
-                        >
+                        <Button variant="ghost" size="icon" onClick={() => handleDeleteProduct(product.id)}>
                           <Trash2 className="h-4 w-4" />
+                          <span className="sr-only">Delete</span>
                         </Button>
-                      </div>
+                      </TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-center py-4 text-gray-500">
+                      No products found.
                     </TableCell>
                   </TableRow>
-                ))}
+                )}
               </TableBody>
             </Table>
           </div>

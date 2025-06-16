@@ -1,0 +1,9 @@
+// Allows authenticated users to read all orders, and only specific admins to write/update
+match /orders/{orderId} {
+  allow read: if request.auth != null; // Allows any authenticated user to read all orders
+  // Example for write: if you want only admins to write/update orders, you'd need
+  // to check an admin flag on the user's custom claims or a separate admin collection.
+  // For now, if you just want to get it working, you could temporarily allow write for all auth users:
+  allow update: if request.auth != null; // TEMPORARY: Allows any authenticated user to update orders. NOT FOR PRODUCTION WITHOUT ADMIN CHECK!
+  // allow create, update, delete: if request.auth != null; // NOT RECOMMENDED FOR PRODUCTION
+} 
