@@ -34,23 +34,6 @@ interface Category {
   name: string;
 }
 
-// const initialProducts: Item[] = [
-//   {
-//     id: "1",
-//     name: "Veg Burger",
-//     description: "",
-//     price: 120,
-//     category: "Fast Food",
-//     categoryId: "",
-//     categoryName: "Fast Food",
-//     imageUrl: "/placeholder.svg?height=200&width=200",
-//     quantity: 1,
-//     defaultOrderStatus: "Preparing",
-//   },
-// ];
-
-// const categories = ["Fast Food", "South Indian", "North Indian", "Beverages", "Desserts", "Snacks"];
-
 export default function ProductManagement() {
   const [products, setProducts] = useState<Item[]>([]);
   const [categories, setCategories] = useState<Category[]>([]);
@@ -72,12 +55,12 @@ export default function ProductManagement() {
   const [formData, setFormData] = useState<Omit<Item, "id" | "isAvailable" | "categoryRef"> & { price: string }>({ // price as string for input
     name: "",
     price: "",
-    category: "", // This will store the category ID
+    category: "", 
     categoryId: "",
     categoryName: "",
     imageUrl: "",
-    quantity: 1, // Initialize quantity
-    defaultOrderStatus: "Preparing", // Initialize defaultOrderStatus
+    quantity: 1, 
+    defaultOrderStatus: "Preparing",
   });
 
   useEffect(() => {
