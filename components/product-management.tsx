@@ -410,7 +410,7 @@ export default function ProductManagement() {
                       </TableCell>
                       <TableCell className="font-medium">
                         {product.name}
-                        <p className="text-sm text-gray-500">{product.description}</p>
+                        {/* <p className="text-sm text-gray-500">{product.description}</p> */}
                       </TableCell>
                       <TableCell>{product.categoryName}</TableCell>
                       <TableCell>₹{product.price.toFixed(2)}</TableCell>
