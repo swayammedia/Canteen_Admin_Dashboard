@@ -3,7 +3,6 @@ import { DocumentReference, Timestamp } from "firebase/firestore";
 export interface Item {
   id: string;
   name: string;
-  description: string;
   price: number;
   category: string;
   categoryId: string;
@@ -11,6 +10,7 @@ export interface Item {
   imageUrl: string;
   qty: number;
   defaultOrderStatus: string;
+  isAvailable: boolean;
   categoryRef?: DocumentReference;
 }
 

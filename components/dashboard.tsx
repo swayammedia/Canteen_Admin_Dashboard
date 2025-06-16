@@ -217,7 +217,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
       const excelData = todayOrders.map((order) => ({
         "Order ID": order.id,
-        "User Email": order.userId,
+        "User Name": order.userId,
         "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
         "Amount (₹)": order.totalAmount,
         Date: order.timestamp.toDate().toLocaleDateString(),

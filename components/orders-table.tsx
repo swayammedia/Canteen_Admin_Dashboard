@@ -3,9 +3,9 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar, Clock, Search, ChefHat, Package, CheckCircle } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase"
-import { doc, updateDoc, Timestamp } from "firebase/firestore"
+import { doc, updateDoc, Timestamp, collection, getDocs } from "firebase/firestore"
 import { Item, Order } from "@/types/common-interfaces"
 
 interface OrdersTableProps {
@@ -36,6 +36,21 @@ const statusOptions = [
 
 export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps) {
   const [updatingOrders, setUpdatingOrders] = useState<Set<string>>(new Set());
+  const [userNames, setUserNames] = useState<Record<string, string>>({}); // New state for user names
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const usersCol = collection(db, "users");
+      const userSnapshot = await getDocs(usersCol);
+      const namesMap: Record<string, string> = {};
+      userSnapshot.docs.forEach(doc => {
+        namesMap[doc.id] = doc.data().name || "Unknown User"; // Assuming 'name' field in user document
+      });
+      setUserNames(namesMap);
+    };
+
+    fetchUsers();
+  }, []); // Run once on component mount
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     setUpdatingOrders((prev) => new Set(prev).add(orderId));
@@ -69,7 +84,7 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
           <TableHeader className="bg-gray-50">
             <TableRow>
               <TableHead className="font-semibold text-gray-700">Token</TableHead>
-              <TableHead className="font-semibold text-gray-700">User Email</TableHead>
+              <TableHead className="font-semibold text-gray-700">User Name</TableHead>
               <TableHead className="font-semibold text-gray-700">Items Ordered</TableHead>
               <TableHead className="font-semibold text-gray-700">Amount</TableHead>
               <TableHead className="font-semibold text-gray-700">Date</TableHead>
@@ -98,8 +113,8 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
 
                 return (
                   <TableRow key={order.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}>
-                    <TableCell className="font-bold text-blue-600">{order.id.substring(0, 8).toUpperCase()}</TableCell>
-                    <TableCell className="text-gray-700">{order.userId}</TableCell>
+                    <TableCell className="font-bold text-blue-600">{order.id}</TableCell>
+                    <TableCell className="text-gray-700">{userNames[order.userId] || order.userId}</TableCell>
                     <TableCell>
                       <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600">
                         {order.items.map(item => `${item.name} (x${item.qty})`).join(", ")}
