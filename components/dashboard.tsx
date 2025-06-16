@@ -53,19 +53,23 @@ interface Category {
   name: string;
 }
 
-const months = [
-  { value: "2024-01", label: "January 2024" },
-  { value: "2023-12", label: "December 2023" },
-  { value: "2023-11", label: "November 2023" },
-  { value: "2023-10", label: "October 2023" },
-  { value: "2023-09", label: "September 2023" },
-  { value: "2023-08", label: "August 2023" },
-]
+const generateMonths = () => {
+  const monthsArray = [];
+  const today = new Date();
+  for (let i = 0; i < 12; i++) { // Generate last 12 months
+    const date = new Date(today.getFullYear(), today.getMonth() - i, 1);
+    const value = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+    const label = date.toLocaleString('en-US', { month: 'long', year: 'numeric' });
+    monthsArray.push({ value, label });
+  }
+  return monthsArray;
+};
 
 export default function Dashboard({ /* onLogout */ }: {}) {
   const [orders, setOrders] = useState<Order[]>([])
   const [categories, setCategories] = useState<Category[]>([])
   const [searchQuery, setSearchQuery] = useState("")
+  const [months, setMonths] = useState(generateMonths())
   const [selectedMonth, setSelectedMonth] = useState(months[0].value)
   const [selectedOrderCategory, setSelectedOrderCategory] = useState("all")
   const [activeTab, setActiveTab] = useState("orders")
@@ -74,6 +78,9 @@ export default function Dashboard({ /* onLogout */ }: {}) {
   const [monthlyEarningsData, setMonthlyEarningsData] = useState<{ [key: string]: { amount: number; change: number; orders: number } }>({})
 
   useEffect(() => {
+    setMonths(generateMonths())
+    setSelectedMonth(generateMonths()[0].value)
+
     const fetchCategories = async () => {
       const categoriesCol = collection(db, "categories")
       const categorySnapshot = await onSnapshot(categoriesCol, (snapshot) => {
@@ -95,9 +102,8 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
       const ordersList = snapshot.docs.map(doc => {
         const data = doc.data();
-        console.log("Firestore Debug: Processing document with ID:", doc.id, "Data:", data);
+        // console.log("Firestore Debug: Processing document with ID:", doc.id, "Data:", data);
 
-        // Explicitly check for expected fields and provide fallbacks
         const items = Array.isArray(data.items) ? data.items.map((item: any) => ({
           id: item.id || '',
           name: item.name || '',
@@ -117,11 +123,10 @@ export default function Dashboard({ /* onLogout */ }: {}) {
         };
       }) as Order[];
       setOrders(ordersList)
-      console.log("Firestore Debug: Orders list mapped:", ordersList);
+      console.log("Firestore Debug: Orders list mapped (full data):", ordersList);
 
       const earnings: { [key: string]: { amount: number; orders: number } } = {}
       ordersList.forEach(order => {
-        // Ensure timestamp is a valid Date object before calling toDate()
         const date = order.timestamp instanceof Timestamp ? order.timestamp.toDate() : new Date();
         const yearMonth = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`
         if (!earnings[yearMonth]) {
@@ -173,9 +178,10 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
   const filteredOrders = orders.filter((order) => {
     const matchesSearch =
+      searchQuery === "" ||
       order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.userId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()))
+      order.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
     const orderDate = order.timestamp.toDate()
     const orderMonth = `${orderDate.getFullYear()}-${(orderDate.getMonth() + 1).toString().padStart(2, '0')}`
@@ -187,8 +193,11 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     const matchesCategory = selectedOrderCategory === "all" ||
       order.items.some(item => item.categoryId === selectedOrderCategory); // This line is problematic if categoryId is missing
 
-    return matchesSearch && matchesMonth; // Removed matchesCategory for now
+    console.log("Firestore Debug: Filtering Order - ID:", order.id, "Search:", searchQuery, "Selected Month:", selectedMonth, "Order Month:", orderMonth, "Matches Search:", matchesSearch, "Matches Month:", matchesMonth, "Matches Category:", matchesCategory, "Result:", matchesSearch && matchesMonth);
+
+    return matchesSearch && matchesMonth; // Removed matchesCategory from Result for now
   })
+  console.log("Firestore Debug: Filtered Orders (final list to table):", filteredOrders, "Total filtered:", filteredOrders.length);
 
   const currentMonthData = monthlyEarningsData[selectedMonth]
 
