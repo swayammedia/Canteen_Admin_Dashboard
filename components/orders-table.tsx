@@ -58,7 +58,8 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
   };
 
   const getStatusConfig = (status: string) => {
-    return statusOptions.find((option) => option.value === status) || statusOptions[0];
+    const normalizedStatus = status.trim();
+    return statusOptions.find((option) => option.value.toLowerCase() === normalizedStatus.toLowerCase()) || statusOptions[0];
   };
 
   return (

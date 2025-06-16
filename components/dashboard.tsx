@@ -101,7 +101,6 @@ export default function Dashboard({ /* onLogout */ }: {}) {
           return {
             id: item.id || fetchedItemData?.id || '',
             name: item.name || fetchedItemData?.name || '',
-            description: item.description || fetchedItemData?.description || '',
             price: item.price || fetchedItemData?.price || 0,
             category: resolvedCategoryName || item.category || fetchedItemData?.category || '',
             categoryId: resolvedCategoryId || item.categoryId || fetchedItemData?.categoryId || '',
@@ -126,11 +125,10 @@ export default function Dashboard({ /* onLogout */ }: {}) {
           blockUntil: data.blockUntil || undefined,
         };
       });
-
       const ordersList = await Promise.all(ordersListPromises);
-      setOrders(ordersList)
+      setOrders(ordersList as Order[]);
 
-      const earnings: { [key: string]: { amount: number; orders: number } } = {}
+      const earnings: { [key: string]: { amount: number; orders: number } } = {};
       ordersList.forEach(order => {
         const date = order.timestamp instanceof Timestamp ? order.timestamp.toDate() : new Date();
         const yearMonth = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`

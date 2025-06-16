@@ -11,7 +11,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Badge } from "@/components/ui/badge"
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table"
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog"
-import { Switch } from "@/components/ui/switch"
 import { Plus, Edit, Trash2, Camera, Search } from "lucide-react"
 import { db } from "@/lib/firebase"
 import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, DocumentReference, getDoc } from "firebase/firestore"
@@ -28,7 +27,6 @@ interface Item {
   quantity: number;
   categoryRef?: DocumentReference; // Optional, as it might not always be present or needed for display
   defaultOrderStatus: string;
-  isAvailable: boolean;
 }
 
 interface Category {
@@ -66,7 +64,7 @@ export default function ProductManagement() {
   }, [selectedCategory]);
 
   // Form state for adding/editing products
-  const [formData, setFormData] = useState<Omit<Item, "id" | "quantity" | "defaultOrderStatus" | "isAvailable"> & { price: string }>({ // price as string for input
+  const [formData, setFormData] = useState<Omit<Item, "id" | "categoryRef"> & { price: string }>({ // price as string for input
     name: "",
     description: "",
     price: "",
@@ -74,6 +72,8 @@ export default function ProductManagement() {
     categoryId: "",
     categoryName: "",
     imageUrl: "",
+    quantity: 1, // Initialize quantity
+    defaultOrderStatus: "Preparing", // Initialize defaultOrderStatus
   });
 
   useEffect(() => {
@@ -91,7 +91,7 @@ export default function ProductManagement() {
       const itemsCol = collection(db, "items");
       const itemSnapshot = await getDocs(itemsCol);
       const itemListPromises = itemSnapshot.docs.map(async (docRef) => {
-        const data = docRef.data();
+        const data = docRef.data() as Item; // Explicitly cast data to Item
         let categoryId = data.categoryId ?? '';
         let categoryName = data.categoryName ?? '';
 
@@ -124,9 +124,8 @@ export default function ProductManagement() {
           imageUrl: data.imageUrl,
           quantity: data.quantity,
           defaultOrderStatus: data.defaultOrderStatus,
-          isAvailable: data.hasOwnProperty('isAvailable') ? data.isAvailable : true,
           categoryRef: data.categoryRef || undefined,
-        };
+        } as Item; 
       });
 
       const itemList = await Promise.all(itemListPromises);
@@ -154,8 +153,8 @@ export default function ProductManagement() {
         categoryId: selectedCat.id, // Storing category ID
         categoryName: selectedCat.name,
         imageUrl: formData.imageUrl || "/placeholder.svg?height=200&width=200&query=" + encodeURIComponent(formData.name),
-        quantity: 1, // Default quantity
-        defaultOrderStatus: "Preparing",
+        quantity: formData.quantity, // Use quantity from form
+        defaultOrderStatus: formData.defaultOrderStatus, // Use defaultOrderStatus from form
         categoryRef: doc(db, "categories", selectedCat.id), // Firestore DocumentReference
       };
 
@@ -180,6 +179,8 @@ export default function ProductManagement() {
       categoryId: product.categoryId,
       categoryName: product.categoryName,
       imageUrl: product.imageUrl,
+      quantity: product.quantity, // Populate quantity
+      defaultOrderStatus: product.defaultOrderStatus, // Populate defaultOrderStatus
     });
     setIsAddDialogOpen(true);
   };
@@ -202,6 +203,8 @@ export default function ProductManagement() {
         categoryId: selectedCat.id,
         categoryName: selectedCat.name,
         imageUrl: formData.imageUrl || editingProduct.imageUrl,
+        quantity: formData.quantity,
+        defaultOrderStatus: formData.defaultOrderStatus,
         categoryRef: doc(db, "categories", selectedCat.id), // Ensure correct reference
       };
 
@@ -232,18 +235,6 @@ export default function ProductManagement() {
     }
   };
 
-  const toggleAvailability = async (id: string, currentAvailability: boolean) => {
-    try {
-      const itemDocRef = doc(db, "items", id);
-      await updateDoc(itemDocRef, { isAvailable: !currentAvailability });
-      setProducts(prev => prev.map(p => (p.id === id ? { ...p, isAvailable: !currentAvailability } : p)));
-      alert("Product availability updated!");
-    } catch (error) {
-      console.error("Error toggling availability:", error);
-      alert("Error updating product availability. Please try again.");
-    }
-  };
-
   const resetForm = () => {
     setFormData({
       name: "",
@@ -253,6 +244,8 @@ export default function ProductManagement() {
       categoryId: "",
       categoryName: "",
       imageUrl: "",
+      quantity: 1, // Reset quantity
+      defaultOrderStatus: "Preparing", // Reset defaultOrderStatus to a valid value
     });
   };
 
@@ -267,6 +260,16 @@ export default function ProductManagement() {
 
     return matchesSearch && matchesCategory;
   });
+
+  const getAvailabilityStatus = (quantity: number) => {
+    if (quantity === 0) {
+      return { text: "Sold Out", variant: "destructive" };
+    } else if (quantity < 30) {
+      return { text: "Few stocks", variant: "default" }; // Changed to default variant
+    } else {
+      return { text: "Available", variant: "default" };
+    }
+  };
 
   const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -377,6 +380,35 @@ export default function ProductManagement() {
                   </div>
                 )}
               </div>
+              <div className="grid gap-2">
+                <Label htmlFor="quantity">Quantity</Label>
+                <Input
+                  id="quantity"
+                  type="number"
+                  placeholder="1"
+                  value={formData.quantity}
+                  onChange={(e) =>
+                    setFormData({ ...formData, quantity: Number(e.target.value) })
+                  }
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="defaultOrderStatus">Default Order Status</Label>
+                <Select
+                  value={formData.defaultOrderStatus}
+                  onValueChange={(value) =>
+                    setFormData({ ...formData, defaultOrderStatus: value })
+                  }
+                >
+                  <SelectTrigger id="defaultOrderStatus">
+                    <SelectValue placeholder="Select a status" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="Preparing">Preparing</SelectItem>
+                    <SelectItem value="Ready">Ready</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="flex justify-end gap-2">
               <Button
@@ -464,14 +496,9 @@ export default function ProductManagement() {
                       <TableCell>{product.categoryName}</TableCell>
                       <TableCell>₹{product.price.toFixed(2)}</TableCell>
                       <TableCell>
-                        <Badge variant={product.quantity > 0 ? "default" : "destructive"}>
-                          {product.quantity > 0 ? "Available" : "Unavailable"}
+                        <Badge variant={getAvailabilityStatus(product.quantity).variant}>
+                          {getAvailabilityStatus(product.quantity).text}
                         </Badge>
-                        <Switch
-                          checked={product.quantity > 0}
-                          onCheckedChange={() => toggleAvailability(product.id, product.quantity > 0)}
-                          className="ml-2"
-                        />
                       </TableCell>
                       <TableCell className="text-right">
                         <Button variant="ghost" size="icon" onClick={() => handleEditProduct(product)}>
