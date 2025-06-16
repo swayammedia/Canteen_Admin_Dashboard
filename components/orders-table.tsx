@@ -3,31 +3,10 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar, Clock, Search, ChefHat, Package, CheckCircle } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase"
-import { doc, updateDoc, Timestamp } from "firebase/firestore"
-
-interface Item {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  categoryId: string;
-  categoryName: string;
-  imageUrl: string;
-  qty: number;
-  defaultOrderStatus: string;
-}
-
-interface Order {
-  id: string;
-  userId: string;
-  items: Item[];
-  totalAmount: number;
-  timestamp: Timestamp;
-  status: string;
-}
+import { doc, updateDoc, Timestamp, collection, getDocs } from "firebase/firestore"
+import { Item, Order } from "@/types/common-interfaces"
 
 interface OrdersTableProps {
   orders: Order[];
@@ -36,19 +15,19 @@ interface OrdersTableProps {
 
 const statusOptions = [
   {
-    value: "Preparing the Order",
+    value: "Preparing",
     label: "Preparing the Order",
     color: "bg-yellow-100 text-yellow-800 border-yellow-300",
     icon: ChefHat,
   },
   {
-    value: "Collect your order",
+    value: "Ready",
     label: "Collect your order",
     color: "bg-blue-100 text-blue-800 border-blue-300",
     icon: Package,
   },
   {
-    value: "Order Delivered",
+    value: "Delivered",
     label: "Order Delivered",
     color: "bg-green-100 text-green-800 border-green-300",
     icon: CheckCircle,
@@ -57,6 +36,21 @@ const statusOptions = [
 
 export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps) {
   const [updatingOrders, setUpdatingOrders] = useState<Set<string>>(new Set());
+  const [userNames, setUserNames] = useState<Record<string, string>>({}); // New state for user names
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const usersCol = collection(db, "users");
+      const userSnapshot = await getDocs(usersCol);
+      const namesMap: Record<string, string> = {};
+      userSnapshot.docs.forEach(doc => {
+        namesMap[doc.id] = doc.data().name || "Unknown User"; // Assuming 'name' field in user document
+      });
+      setUserNames(namesMap);
+    };
+
+    fetchUsers();
+  }, []); // Run once on component mount
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     setUpdatingOrders((prev) => new Set(prev).add(orderId));
@@ -79,7 +73,8 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
   };
 
   const getStatusConfig = (status: string) => {
-    return statusOptions.find((option) => option.value === status) || statusOptions[0];
+    const normalizedStatus = status.trim();
+    return statusOptions.find((option) => option.value.toLowerCase() === normalizedStatus.toLowerCase()) || statusOptions[0];
   };
 
   return (
@@ -89,19 +84,18 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
           <TableHeader className="bg-gray-50">
             <TableRow>
               <TableHead className="font-semibold text-gray-700">Token</TableHead>
-              <TableHead className="font-semibold text-gray-700">User Email</TableHead>
+              <TableHead className="font-semibold text-gray-700">User Name</TableHead>
               <TableHead className="font-semibold text-gray-700">Items Ordered</TableHead>
               <TableHead className="font-semibold text-gray-700">Amount</TableHead>
               <TableHead className="font-semibold text-gray-700">Date</TableHead>
               <TableHead className="font-semibold text-gray-700">Time</TableHead>
               <TableHead className="font-semibold text-gray-700">Status</TableHead>
-              <TableHead className="font-semibold text-gray-700">Update Status</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {orders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={7} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center text-gray-500">
                     <Search className="h-12 w-12 mb-4 text-gray-300" />
                     <p className="text-lg font-medium">No orders found</p>
@@ -119,8 +113,8 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
 
                 return (
                   <TableRow key={order.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}>
-                    <TableCell className="font-bold text-blue-600">{order.id.substring(0, 8).toUpperCase()}</TableCell>
-                    <TableCell className="text-gray-700">{order.userId}</TableCell>
+                    <TableCell className="font-bold text-blue-600">{order.id}</TableCell>
+                    <TableCell className="text-gray-700">{userNames[order.userId] || order.userId}</TableCell>
                     <TableCell>
                       <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600">
                         {order.items.map(item => `${item.name} (x${item.qty})`).join(", ")}
@@ -140,23 +134,14 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`${statusConfig.color} font-medium flex items-center gap-1 w-fit`}
-                      >
-                        <StatusIcon className="h-3 w-3" />
-                        {statusConfig.label}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
                       <div className="flex items-center gap-2">
                         <Select
                           value={order.status}
                           onValueChange={(newStatus) => handleStatusChange(order.id, newStatus)}
                           disabled={isUpdating}
                         >
-                          <SelectTrigger className="w-48">
-                            <SelectValue />
+                          <SelectTrigger className={`w-48 ${statusConfig.color}`}>
+                            <SelectValue>{statusConfig.label}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {statusOptions.map((option) => {

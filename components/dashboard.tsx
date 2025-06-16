@@ -24,29 +24,8 @@ import { Button } from "@/components/ui/button"
 import { utils, write } from "xlsx"
 import { useAuth } from "@/hooks/useAuth"
 import { db } from "@/lib/firebase"
-import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore"
-
-interface Item {
-  id: string;
-  name: string;
-  price: number;
-  qty: number;
-}
-
-interface Order {
-  id: string;
-  userId: string;
-  items: Item[];
-  totalAmount: number;
-  timestamp: Timestamp;
-  status: string;
-  collectionTimeSlot?: {
-    displayText: string;
-    endTime: string;
-    startTime: string;
-  };
-  blockUntil?: Timestamp;
-}
+import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc, getDoc } from "firebase/firestore"
+import { Item, Order } from "@/types/common-interfaces"
 
 interface Category {
   id: string;
@@ -94,38 +73,62 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     }
 
     const q = query(collection(db, "orders"), orderBy("timestamp", "desc"))
-    const unsubscribeOrders = onSnapshot(q, (snapshot) => {
-      console.log("Firestore Debug: Snapshot received.", snapshot.docs.length, "documents.");
+    const unsubscribeOrders = onSnapshot(q, async (snapshot) => {
       if (snapshot.empty) {
-        console.log("Firestore Debug: No documents found in 'orders' collection.");
       }
 
-      const ordersList = snapshot.docs.map(doc => {
-        const data = doc.data();
-        // console.log("Firestore Debug: Processing document with ID:", doc.id, "Data:", data);
+      const ordersListPromises = snapshot.docs.map(async (orderDoc) => {
+        const data = orderDoc.data();
 
-        const items = Array.isArray(data.items) ? data.items.map((item: any) => ({
-          id: item.id || '',
-          name: item.name || '',
-          price: item.price || 0,
-          qty: item.qty || 0,
-        })) : [];
+        const itemsPromises = Array.isArray(data.items) ? data.items.map(async (item: any) => {
+          let resolvedCategoryId = item.categoryId || '';
+          let resolvedCategoryName = item.categoryName || '';
+          let fetchedItemData: any = null; // Initialize to null
+
+          if (!resolvedCategoryId && !item.categoryRef && item.id) {
+            try {
+              const itemDoc = await getDoc(doc(db, "items", item.id));
+              if (itemDoc.exists()) {
+                fetchedItemData = itemDoc.data(); // Assign data if doc exists
+                resolvedCategoryId = fetchedItemData.categoryId || fetchedItemData.category?.toLowerCase().replace(/\s/g, '') || '';
+                resolvedCategoryName = fetchedItemData.categoryName || fetchedItemData.category || '';
+              }
+            } catch (error) {
+              console.error("Error fetching item details for order item:", item.id, error);
+            }
+          }
+
+          return {
+            id: item.id || fetchedItemData?.id || '',
+            name: item.name || fetchedItemData?.name || '',
+            price: item.price || fetchedItemData?.price || 0,
+            category: resolvedCategoryName || item.category || fetchedItemData?.category || '',
+            categoryId: resolvedCategoryId || item.categoryId || fetchedItemData?.categoryId || '',
+            categoryName: resolvedCategoryName || item.categoryName || fetchedItemData?.categoryName || '',
+            imageUrl: item.imageUrl || fetchedItemData?.imageUrl || '',
+            qty: item.qty || fetchedItemData?.qty || 0,
+            defaultOrderStatus: item.defaultOrderStatus || fetchedItemData?.defaultOrderStatus || 'Preparing',
+            categoryRef: item.categoryRef || fetchedItemData?.categoryRef || undefined,
+          };
+        }) : [];
+
+        const items = await Promise.all(itemsPromises);
 
         return {
-          id: doc.id,
+          id: orderDoc.id,
           userId: data.userId || '',
           items: items,
           totalAmount: data.totalAmount || 0,
           timestamp: data.timestamp instanceof Timestamp ? data.timestamp : new Timestamp(0, 0),
-          status: data.status || '',
+          status: data.status || 'Preparing the Order',
           collectionTimeSlot: data.collectionTimeSlot || undefined,
           blockUntil: data.blockUntil || undefined,
         };
-      }) as Order[];
-      setOrders(ordersList)
-      console.log("Firestore Debug: Orders list mapped (full data):", ordersList);
+      });
+      const ordersList = await Promise.all(ordersListPromises);
+      setOrders(ordersList as Order[]);
 
-      const earnings: { [key: string]: { amount: number; orders: number } } = {}
+      const earnings: { [key: string]: { amount: number; orders: number } } = {};
       ordersList.forEach(order => {
         const date = order.timestamp instanceof Timestamp ? order.timestamp.toDate() : new Date();
         const yearMonth = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`
@@ -187,23 +190,17 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     const orderMonth = `${orderDate.getFullYear()}-${(orderDate.getMonth() + 1).toString().padStart(2, '0')}`
     const matchesMonth = selectedMonth === orderMonth
 
-    // The category ID is not directly available in the item object within the order document.
-    // To enable this filtering, the backend needs to denormalize categoryId into the order's items array
-    // when the order is created, or a more complex frontend fetch logic is required.
     const matchesCategory = selectedOrderCategory === "all" ||
-      order.items.some(item => item.categoryId === selectedOrderCategory); // This line is problematic if categoryId is missing
+      order.items.some(item => item.categoryId === selectedOrderCategory);
 
-    console.log("Firestore Debug: Filtering Order - ID:", order.id, "Search:", searchQuery, "Selected Month:", selectedMonth, "Order Month:", orderMonth, "Matches Search:", matchesSearch, "Matches Month:", matchesMonth, "Matches Category:", matchesCategory, "Result:", matchesSearch && matchesMonth);
-
-    return matchesSearch && matchesMonth; // Removed matchesCategory from Result for now
+    return matchesSearch && matchesMonth && matchesCategory;
   })
-  console.log("Firestore Debug: Filtered Orders (final list to table):", filteredOrders, "Total filtered:", filteredOrders.length);
 
   const currentMonthData = monthlyEarningsData[selectedMonth]
 
-  const deliveredOrders = orders.filter((order) => order.status === "Order Delivered").length
-  const preparingOrders = orders.filter((order) => order.status === "Preparing the Order").length
-  const readyOrders = orders.filter((order) => order.status === "Collect your order").length
+  const deliveredOrders = orders.filter((order) => order.status === "Delivered").length
+  const preparingOrders = orders.filter((order) => order.status === "Preparing").length
+  const readyOrders = orders.filter((order) => order.status === "Ready").length
 
   const downloadDailyOrders = () => {
     setIsDownloading(true)
@@ -220,7 +217,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
       const excelData = todayOrders.map((order) => ({
         "Order ID": order.id,
-        "User Email": order.userId,
+        "User Name": order.userId,
         "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
         "Amount (₹)": order.totalAmount,
         Date: order.timestamp.toDate().toLocaleDateString(),
@@ -414,12 +411,15 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                   </SelectContent>
                 </Select>
                 <Button onClick={downloadDailyOrders} disabled={isDownloading}>
-                  <FileSpreadsheet className="h-4 w-4 mr-2" />
+                        <FileSpreadsheet className="h-4 w-4 mr-2" />
                   {isDownloading ? "Downloading..." : "Download Today's Orders"}
-                </Button>
-              </div>
+                  </Button>
+                </div>
             </div>
-            <OrdersTable orders={filteredOrders} onStatusUpdate={handleStatusUpdate} />
+                <OrdersTable 
+                  orders={filteredOrders} 
+                  onStatusUpdate={handleStatusUpdate} 
+                />
           </TabsContent>
 
           <TabsContent value="products">
