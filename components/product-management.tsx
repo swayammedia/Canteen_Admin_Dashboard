@@ -245,11 +245,11 @@ export default function ProductManagement() {
     return matchesSearch && matchesCategory;
   });
 
-  const getAvailabilityStatus = (quantity: number) => {
+  const getAvailabilityStatus = (quantity: number): { text: string; variant: "default" | "secondary" | "destructive" | "outline" } => {
     if (quantity === 0) {
       return { text: "Sold Out", variant: "destructive" };
     } else if (quantity < 30) {
-      return { text: "Few stocks", variant: "default" }; // Changed to default variant
+      return { text: "Few stocks", variant: "default" };
     } else {
       return { text: "Available", variant: "default" };
     }
@@ -429,7 +429,16 @@ export default function ProductManagement() {
             </DialogContent>
           </Dialog>
 
-          <Dialog open={isAddDialogOpen} onOpenChange={setIsAddDialogOpen}>
+          <Dialog
+            open={isAddDialogOpen}
+            onOpenChange={(open) => {
+              setIsAddDialogOpen(open);
+              if (!open) {
+                setEditingProduct(null);
+                resetForm();
+              }
+            }}
+          >
             <DialogTrigger asChild>
               <Button className="bg-green-600 hover:bg-green-700 text-white">
                 <Plus className="h-4 w-4 mr-2" />
@@ -627,7 +636,7 @@ export default function ProductManagement() {
                       <TableCell>{product.categoryName}</TableCell>
                       <TableCell>₹{product.price.toFixed(2)}</TableCell>
                       <TableCell>
-                        <Badge variant={getAvailabilityStatus(product.quantity).variant}>
+                        <Badge variant={getAvailabilityStatus(product.quantity).variant as "default" | "secondary" | "destructive" | "outline"}>
                           {getAvailabilityStatus(product.quantity).text}
                         </Badge>
                       </TableCell>
