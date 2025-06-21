@@ -7,6 +7,8 @@ import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase"
 import { doc, updateDoc, Timestamp, collection, getDocs } from "firebase/firestore"
 import { Item, Order } from "@/types/common-interfaces"
+import { toast } from "@/hooks/use-toast"
+import Image from 'next/image'
 
 interface OrdersTableProps {
   orders: Order[];
@@ -59,10 +61,16 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: newStatus });
       onStatusUpdate(orderId, newStatus); // Notify parent component to update its state
-      alert(`Order ${orderId} status updated to: ${newStatus}`);
+      toast({
+        title: "Order Status Updated",
+        description: `Order ${orderId} status updated to: ${newStatus}`,
+      });
     } catch (error) {
       console.error("Error updating order status:", error);
-      alert("Failed to update order status. Please try again.");
+      toast({
+        title: "Failed to Update Order Status",
+        description: "Failed to update order status. Please try again.",
+      });
     } finally {
       setUpdatingOrders((prev) => {
         const newSet = new Set(prev);
@@ -116,8 +124,19 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                     <TableCell className="font-bold text-blue-600">{order.id}</TableCell>
                     <TableCell className="text-gray-700">{userNames[order.userId] || order.userId}</TableCell>
                     <TableCell>
-                      <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600">
-                        {order.items.map(item => `${item.name} (x${item.qty})`).join(", ")}
+                      <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600 flex flex-wrap gap-2">
+                        {order.items.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 mb-1">
+                            <Image
+                              src={item.imageUrl || "/placeholder.svg"}
+                              alt={item.name}
+                              width={32}
+                              height={32}
+                              className="w-8 h-8 object-cover rounded"
+                            />
+                            <span>{item.name} (x{item.qty})</span>
+                          </div>
+                        ))}
                       </div>
                     </TableCell>
                     <TableCell className="font-semibold text-green-600">₹{order.totalAmount.toFixed(2)}</TableCell>

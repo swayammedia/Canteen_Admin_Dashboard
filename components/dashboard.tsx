@@ -26,6 +26,7 @@ import { useAuth } from "@/hooks/useAuth"
 import { db } from "@/lib/firebase"
 import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc, getDoc } from "firebase/firestore"
 import { Item, Order } from "@/types/common-interfaces"
+import { toast } from "@/hooks/use-toast"
 
 interface Category {
   id: string;
@@ -172,10 +173,16 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     try {
       const orderRef = doc(db, "orders", orderId)
       await updateDoc(orderRef, { status: newStatus })
-      alert(`Order status updated to: ${newStatus}`)
+      toast({
+        title: "Order status updated",
+        description: `Order status updated to: ${newStatus}`,
+      })
     } catch (error) {
       console.error("Error updating order status:", error)
-      alert("Failed to update order status. Please try again.")
+      toast({
+        title: "Failed to update order status",
+        description: "Failed to update order status. Please try again.",
+      })
     }
   }
 
@@ -254,10 +261,16 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
 
-      alert(`Downloaded ${todayOrders.length} orders for ${todayString} as Excel file`)
+      toast({
+        title: "Downloaded orders",
+        description: `Downloaded ${todayOrders.length} orders for ${todayString} as Excel file`,
+      })
     } catch (error) {
       console.error("Error generating Excel file:", error)
-      alert("Error generating Excel file. Please try again.")
+      toast({
+        title: "Error generating Excel file",
+        description: "Error generating Excel file. Please try again.",
+      })
     } finally {
       setIsDownloading(false)
     }

@@ -14,6 +14,10 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from 
 import { Plus, Edit, Trash2, Camera, Search } from "lucide-react"
 import { db } from "@/lib/firebase"
 import { collection, getDocs, addDoc, doc, updateDoc, deleteDoc, DocumentReference, getDoc, query, where, writeBatch } from "firebase/firestore"
+import { storage } from "@/lib/firebase"
+import { ref as storageRef, uploadBytes, getDownloadURL, deleteObject } from "firebase/storage"
+import { toast } from "@/hooks/use-toast"
+import Image from 'next/image'
 
 interface Item {
   id: string;
@@ -23,7 +27,7 @@ interface Item {
   categoryId: string;
   categoryName: string;
   imageUrl: string;
-  quantity: number;
+  qty: number;
   categoryRef?: DocumentReference; // Optional, as it might not always be present or needed for display
   defaultOrderStatus: string;
   isAvailable: boolean;
@@ -59,7 +63,7 @@ export default function ProductManagement() {
     categoryId: "",
     categoryName: "",
     imageUrl: "",
-    quantity: 1, 
+    qty: 1, 
     defaultOrderStatus: "Preparing",
   });
 
@@ -78,7 +82,7 @@ export default function ProductManagement() {
       const itemsCol = collection(db, "items");
       const itemSnapshot = await getDocs(itemsCol);
       const itemListPromises = itemSnapshot.docs.map(async (docRef) => {
-        const data = docRef.data() as Item; // Explicitly cast data to Item
+        const data = docRef.data(); // no cast!
         let categoryId = data.categoryId ?? '';
         let categoryName = data.categoryName ?? '';
 
@@ -108,7 +112,7 @@ export default function ProductManagement() {
           categoryId: categoryId, // Use resolved categoryId
           categoryName: categoryName, // Use resolved categoryName
           imageUrl: data.imageUrl,
-          quantity: data.quantity,
+          qty: data.quantity ?? 1,
           defaultOrderStatus: data.defaultOrderStatus,
           isAvailable: data.hasOwnProperty('isAvailable') ? data.isAvailable : true,
           categoryRef: data.categoryRef || undefined,
@@ -127,7 +131,7 @@ export default function ProductManagement() {
     // Find the selected category name and ref based on the categoryId in formData
     const selectedCat = categories.find(cat => cat.id === formData.category);
     if (!selectedCat) {
-      alert("Please select a valid category.");
+      toast({ title: "Error", description: "Please select a valid category." });
       return;
     }
 
@@ -139,9 +143,9 @@ export default function ProductManagement() {
         categoryId: selectedCat.id, // Storing category ID
         categoryName: selectedCat.name,
         imageUrl: formData.imageUrl || "/placeholder.svg?height=200&width=200&query=" + encodeURIComponent(formData.name),
-        quantity: formData.quantity, // Use quantity from form
+        qty: formData.qty, // Use qty from form
         defaultOrderStatus: formData.defaultOrderStatus, // Use defaultOrderStatus from form
-        isAvailable: formData.quantity > 0, // Set based on quantity
+        isAvailable: formData.qty > 0, // Set based on qty
         categoryRef: doc(db, "categories", selectedCat.id), // Firestore DocumentReference
       };
 
@@ -149,10 +153,10 @@ export default function ProductManagement() {
       setProducts(prev => [...prev, { id: docRef.id, ...newItemData }]);
       setIsAddDialogOpen(false);
       resetForm();
-      alert("Product successfully added!");
+      toast({ title: "Success", description: "Product successfully added!" });
     } catch (error) {
       console.error("Error adding product:", error);
-      alert("Error adding product. Please try again.");
+      toast({ title: "Error", description: "Error adding product. Please try again." });
     }
   };
 
@@ -165,7 +169,7 @@ export default function ProductManagement() {
       categoryId: product.categoryId,
       categoryName: product.categoryName,
       imageUrl: product.imageUrl,
-      quantity: product.quantity, // Populate quantity
+      qty: product.qty ?? 1, // Populate qty, fallback to 1 if undefined/null
       defaultOrderStatus: product.defaultOrderStatus, // Populate defaultOrderStatus
     });
     setIsAddDialogOpen(true);
@@ -176,11 +180,30 @@ export default function ProductManagement() {
 
     const selectedCat = categories.find(cat => cat.id === formData.category);
     if (!selectedCat) {
-      alert("Please select a valid category.");
+      toast({ title: "Error", description: "Please select a valid category." });
       return;
     }
 
     try {
+      // If the image has changed and the old image is in Firebase Storage, delete it
+      if (
+        editingProduct.imageUrl &&
+        formData.imageUrl !== editingProduct.imageUrl &&
+        editingProduct.imageUrl.startsWith("https://firebasestorage.googleapis.com/")
+      ) {
+        try {
+          const url = new URL(editingProduct.imageUrl);
+          const pathMatch = url.pathname.match(/\/o\/(.+)$/);
+          if (pathMatch && pathMatch[1]) {
+            const fullPath = decodeURIComponent(pathMatch[1].split("?")[0]);
+            const oldImageRef = storageRef(storage, fullPath);
+            await deleteObject(oldImageRef);
+          }
+        } catch (err) {
+          console.warn("Could not delete old image:", err);
+        }
+      }
+
       const updatedItemData = {
         name: formData.name,
         price: Number.parseFloat(formData.price),
@@ -188,9 +211,9 @@ export default function ProductManagement() {
         categoryId: selectedCat.id,
         categoryName: selectedCat.name,
         imageUrl: formData.imageUrl || editingProduct.imageUrl,
-        quantity: formData.quantity,
+        qty: formData.qty,
         defaultOrderStatus: formData.defaultOrderStatus,
-        isAvailable: formData.quantity > 0, // Set based on quantity
+        isAvailable: formData.qty > 0, // Set based on qty
         categoryRef: doc(db, "categories", selectedCat.id), // Ensure correct reference
       };
 
@@ -201,22 +224,37 @@ export default function ProductManagement() {
       setIsAddDialogOpen(false);
       setEditingProduct(null);
       resetForm();
-      alert("Product successfully updated!");
+      toast({ title: "Success", description: "Product successfully updated!" });
     } catch (error) {
       console.error("Error updating product:", error);
-      alert("Error updating product. Please try again.");
+      toast({ title: "Error", description: "Error updating product. Please try again." });
     }
   };
 
   const handleDeleteProduct = async (id: string) => {
     if (confirm("Are you sure you want to delete this product?")) {
       try {
+        // Find the product to get its imageUrl
+        const product = products.find(p => p.id === id);
+        if (product && product.imageUrl && product.imageUrl.startsWith("https://firebasestorage.googleapis.com/")) {
+          try {
+            const url = new URL(product.imageUrl);
+            const pathMatch = url.pathname.match(/\/o\/(.+)$/);
+            if (pathMatch && pathMatch[1]) {
+              const fullPath = decodeURIComponent(pathMatch[1].split("?")[0]);
+              const imageRef = storageRef(storage, fullPath);
+              await deleteObject(imageRef);
+            }
+          } catch (err) {
+            console.warn("Could not delete product image from storage:", err);
+          }
+        }
         await deleteDoc(doc(db, "items", id));
         setProducts(prev => prev.filter(p => p.id !== id));
-        alert("Product successfully removed!");
+        toast({ title: "Success", description: "Product successfully removed!" });
       } catch (error) {
         console.error("Error deleting product:", error);
-        alert("Error removing product. Please try again.");
+        toast({ title: "Error", description: "Error removing product. Please try again." });
       }
     }
   };
@@ -229,7 +267,7 @@ export default function ProductManagement() {
       categoryId: "",
       categoryName: "",
       imageUrl: "",
-      quantity: 1, // Reset quantity
+      qty: 1, // Reset qty
       defaultOrderStatus: "Preparing", // Reset defaultOrderStatus to a valid value
     });
   };
@@ -245,29 +283,52 @@ export default function ProductManagement() {
     return matchesSearch && matchesCategory;
   });
 
-  const getAvailabilityStatus = (quantity: number): { text: string; variant: "default" | "secondary" | "destructive" | "outline" } => {
-    if (quantity === 0) {
+  const getAvailabilityStatus = (qty: number): { text: string; variant: "default" | "secondary" | "destructive" | "outline" } => {
+    if (qty === 0) {
       return { text: "Sold Out", variant: "destructive" };
-    } else if (quantity < 30) {
+    } else if (qty < 30) {
       return { text: "Few stocks", variant: "default" };
     } else {
       return { text: "Available", variant: "default" };
     }
   };
 
-  const handleImageUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (file) {
-      // In a real app, you would upload to a cloud service like Firebase Storage
-      const imageUrl = URL.createObjectURL(file);
-      setFormData({ ...formData, imageUrl: imageUrl });
+      try {
+        // If editing and there is an existing image, delete it first
+        if (editingProduct && editingProduct.imageUrl && editingProduct.imageUrl.startsWith("https://firebasestorage.googleapis.com/")) {
+          try {
+            // Extract the path from the URL
+            const url = new URL(editingProduct.imageUrl);
+            const pathMatch = url.pathname.match(/\/o\/(.+)$/);
+            if (pathMatch && pathMatch[1]) {
+              const fullPath = decodeURIComponent(pathMatch[1].split("?")[0]);
+              const oldImageRef = storageRef(storage, fullPath);
+              await deleteObject(oldImageRef);
+            }
+          } catch (err) {
+            console.warn("Could not delete old image:", err);
+          }
+        }
+        // Upload new image
+        const newImageRef = storageRef(storage, `item-images/${Date.now()}_${file.name}`);
+        await uploadBytes(newImageRef, file);
+        const downloadURL = await getDownloadURL(newImageRef);
+        setFormData({ ...formData, imageUrl: downloadURL });
+        toast({ title: "Success", description: "Image uploaded successfully!" });
+      } catch (error) {
+        console.error("Error uploading image:", error);
+        toast({ title: "Error", description: "Error uploading image. Please try again." });
+      }
     }
   };
 
   // Category Management Functions
   const handleAddCategory = async () => {
     if (!categoryFormData.name) {
-      alert("Category name cannot be empty.");
+      toast({ title: "Error", description: "Category name cannot be empty." });
       return;
     }
     try {
@@ -275,10 +336,10 @@ export default function ProductManagement() {
       setCategories(prev => [...prev, { id: docRef.id, name: categoryFormData.name }]);
       setIsCategoryDialogOpen(false);
       setCategoryFormData({ name: "" });
-      alert("Category added successfully!");
+      toast({ title: "Success", description: "Category added successfully!" });
     } catch (error) {
       console.error("Error adding category:", error);
-      alert("Error adding category. Please try again.");
+      toast({ title: "Error", description: "Error adding category. Please try again." });
     }
   };
 
@@ -290,7 +351,7 @@ export default function ProductManagement() {
 
   const handleUpdateCategory = async () => {
     if (!editingCategory || !categoryFormData.name) {
-      alert("Category name cannot be empty.");
+      toast({ title: "Error", description: "Category name cannot be empty." });
       return;
     }
     try {
@@ -316,10 +377,10 @@ export default function ProductManagement() {
       setIsCategoryDialogOpen(false);
       setEditingCategory(null);
       setCategoryFormData({ name: "" });
-      alert("Category updated successfully!");
+      toast({ title: "Success", description: "Category updated successfully!" });
     } catch (error) {
       console.error("Error updating category:", error);
-      alert("Error updating category. Please try again.");
+      toast({ title: "Error", description: "Error updating category. Please try again." });
     }
   };
 
@@ -341,10 +402,10 @@ export default function ProductManagement() {
         await deleteDoc(doc(db, "categories", categoryId));
         setCategories(prev => prev.filter(cat => cat.id !== categoryId));
         setProducts(prev => prev.filter(p => p.categoryId !== categoryId));
-        alert("Category and associated products deleted successfully!");
+        toast({ title: "Success", description: "Category and associated products deleted successfully!" });
       } catch (error) {
         console.error("Error deleting category:", error);
-        alert("Error deleting category. Please try again.");
+        toast({ title: "Error", description: "Error deleting category. Please try again." });
       }
     }
   };
@@ -512,23 +573,25 @@ export default function ProductManagement() {
                   </div>
                   {formData.imageUrl && (
                     <div className="mt-2">
-                      <img
+                      <Image
                         src={formData.imageUrl || "/placeholder.svg"}
                         alt="Preview"
+                        width={80}
+                        height={80}
                         className="w-20 h-20 object-cover rounded-md"
                       />
                     </div>
                   )}
                 </div>
                 <div className="grid gap-2">
-                  <Label htmlFor="quantity">Quantity</Label>
+                  <Label htmlFor="qty">Quantity</Label>
                   <Input
-                    id="quantity"
+                    id="qty"
                     type="number"
                     placeholder="1"
-                    value={formData.quantity}
+                    value={formData.qty}
                     onChange={(e) =>
-                      setFormData({ ...formData, quantity: Number(e.target.value) })
+                      setFormData({ ...formData, qty: Number(e.target.value) })
                     }
                   />
                 </div>
@@ -624,9 +687,11 @@ export default function ProductManagement() {
                   filteredProducts.map((product) => (
                     <TableRow key={product.id}>
                       <TableCell>
-                        <img
+                        <Image
                           src={product.imageUrl || "/placeholder.svg"}
                           alt={product.name}
+                          width={48}
+                          height={48}
                           className="w-12 h-12 object-cover rounded-md"
                         />
                       </TableCell>
@@ -636,8 +701,8 @@ export default function ProductManagement() {
                       <TableCell>{product.categoryName}</TableCell>
                       <TableCell>₹{product.price.toFixed(2)}</TableCell>
                       <TableCell>
-                        <Badge variant={getAvailabilityStatus(product.quantity).variant as "default" | "secondary" | "destructive" | "outline"}>
-                          {getAvailabilityStatus(product.quantity).text}
+                        <Badge variant={getAvailabilityStatus(product.qty).variant as "default" | "secondary" | "destructive" | "outline"}>
+                          {getAvailabilityStatus(product.qty).text}
                         </Badge>
                       </TableCell>
                       <TableCell className="text-right">
