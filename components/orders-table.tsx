@@ -6,7 +6,7 @@ import { Calendar, Clock, Search, ChefHat, Package, CheckCircle } from "lucide-r
 import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase"
 import { doc, updateDoc, Timestamp, collection, getDocs } from "firebase/firestore"
-import { Item, Order } from "@/types/common-interfaces"
+import { Item, Order, Payment, User } from "@/types/common-interfaces"
 import { toast } from "@/hooks/use-toast"
 import Image from 'next/image'
 import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter } from "@/components/ui/dialog";
@@ -206,41 +206,90 @@ export default function OrdersTable({ orders, onStatusUpdate, payments, users, s
       </div>
       {/* Details Dialog */}
       <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
-        <DialogContent className="max-w-2xl">
+        <DialogContent className="max-w-2xl p-8 m-4 rounded-2xl shadow-2xl border bg-white max-h-[80vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Order Details</DialogTitle>
-            <DialogDescription>
-              {detailsOrder && (
-                <div className="space-y-4">
-                  <div>
-                    <h4 className="font-semibold">Order Info</h4>
-                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{JSON.stringify(detailsOrder, null, 2)}</pre>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold">Payment Info</h4>
-                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{
-                      (() => {
-                        const payment = payments.find(p =>
-                          (detailsOrder.razorpayOrderId && p.razorpay_order_id === detailsOrder.razorpayOrderId) ||
-                          (p.userId === detailsOrder.userId && Math.abs(new Date(p.timestamp).getTime() - new Date(detailsOrder.timestamp).getTime()) < 5 * 60 * 1000)
-                        );
-                        return payment ? JSON.stringify(payment, null, 2) : 'No payment found';
-                      })()
-                    }</pre>
-                  </div>
-                  <div>
-                    <h4 className="font-semibold">User Info</h4>
-                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{
-                      (() => {
-                        const user = users.find(u => u.email && detailsOrder.userId && (u.email === detailsOrder.userId || u.rollNo === detailsOrder.userId));
-                        return user ? JSON.stringify(user, null, 2) : 'No user found';
-                      })()
-                    }</pre>
-                  </div>
-                </div>
-              )}
-            </DialogDescription>
           </DialogHeader>
+          {detailsOrder && (
+            <div className="space-y-10">
+              <div className="pb-6 border-b mb-6">
+                <h4 className="font-semibold mb-4 text-lg">Order Info</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><span className="font-medium">Order #:</span> {detailsOrder.orderNumber ?? '-'}</div>
+                  <div><span className="font-medium">Token:</span> {detailsOrder.id}</div>
+                  <div><span className="font-medium">Date:</span> {detailsOrder.orderDate || (detailsOrder.timestamp ? new Date(detailsOrder.timestamp).toLocaleDateString() : '-')}</div>
+                  <div><span className="font-medium">Time:</span> {detailsOrder.timestamp ? new Date(detailsOrder.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</div>
+                  <div><span className="font-medium">Status:</span> <span className="inline-block px-2 py-1 rounded bg-gray-100 border text-xs">{detailsOrder.status}</span></div>
+                  <div><span className="font-medium">Collection Slot:</span> {detailsOrder.collectionTimeSlot?.displayText || '-'}</div>
+                  <div><span className="font-medium">Total Amount:</span> ₹{detailsOrder.totalAmount.toFixed(2)}</div>
+                </div>
+              </div>
+              <div className="pb-6 border-b mb-6">
+                <h4 className="font-semibold mb-4 text-lg">Payment Info</h4>
+                {(() => {
+                  const payment = payments.find(p =>
+                    (detailsOrder.razorpayOrderId && p.razorpay_order_id === detailsOrder.razorpayOrderId) ||
+                    (p.userId === detailsOrder.userId && Math.abs(new Date(p.timestamp).getTime() - new Date(detailsOrder.timestamp).getTime()) < 5 * 60 * 1000)
+                  );
+                  if (!payment) return <div className="text-gray-500">No payment found</div>;
+                  return (
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div><span className="font-medium">Status:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${payment.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{payment.status}</span></div>
+                      <div><span className="font-medium">Method:</span> {payment.method}</div>
+                      <div><span className="font-medium">Amount:</span> ₹{payment.amount}</div>
+                      <div><span className="font-medium">Payment ID:</span> {payment.razorpay_payment_id}</div>
+                      <div><span className="font-medium">Order ID:</span> {payment.razorpay_order_id}</div>
+                      <div><span className="font-medium">Timestamp:</span> {payment.timestamp ? new Date(payment.timestamp).toLocaleString() : '-'}</div>
+                      <div><span className="font-medium">Verified:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${payment.verified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{payment.verified ? 'Yes' : 'No'}</span></div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="pb-2">
+                <h4 className="font-semibold mb-4 text-lg">User Info</h4>
+                {(() => {
+                  const user = users.find(u => detailsOrder.userId && (u.uid === detailsOrder.userId || u.email === detailsOrder.userId || u.rollNo === detailsOrder.userId));
+                  if (!user) return <div className="text-gray-500">No user found</div>;
+                  return (
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div><span className="font-medium">Name:</span> {user.name}</div>
+                      <div><span className="font-medium">Email:</span> {user.email}</div>
+                      <div><span className="font-medium">Phone:</span> {user.phone}</div>
+                      <div><span className="font-medium">Roll No:</span> {user.rollNo}</div>
+                      <div><span className="font-medium">Profile Complete:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${user.profileComplete ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{user.profileComplete ? 'Yes' : 'No'}</span></div>
+                      <div><span className="font-medium">Admin:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${user.isAdmin ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{user.isAdmin ? 'Yes' : 'No'}</span></div>
+                      <div><span className="font-medium">Cashier:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${user.isCashier ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{user.isCashier ? 'Yes' : 'No'}</span></div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="mt-6">
+                <h5 className="font-medium mb-2">Items Ordered</h5>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {detailsOrder.items.map(item => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>{item.qty}</TableCell>
+                        <TableCell>₹{item.price}</TableCell>
+                        <TableCell>
+                          <span className={`inline-block px-2 py-1 rounded text-xs ${item.status === 'ready' ? 'bg-green-100 text-green-700' : item.status === 'preparing' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>{item.status || '-'}</span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
           <DialogFooter>
             <Button onClick={() => setDetailsOpen(false)} variant="outline">Close</Button>
           </DialogFooter>

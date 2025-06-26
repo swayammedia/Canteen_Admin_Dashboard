@@ -9,7 +9,6 @@ import {
   Search,
   IndianRupee,
   TrendingUp,
-  Calendar,
   Clock,
   Users,
   ShoppingBag,
@@ -28,6 +27,10 @@ import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc, getD
 import { Item, Order, Payment, User } from "@/types/common-interfaces"
 import { toast } from "@/hooks/use-toast"
 import PaymentsTable from "./payments-table"
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isSameDay, isWithinInterval, parseISO } from "date-fns"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 interface Category {
   id: string;
@@ -61,6 +64,11 @@ export default function Dashboard({ /* onLogout */ }: {}) {
   const [users, setUsers] = useState<User[]>([]);
   const [orderSearch, setOrderSearch] = useState("");
   const [paymentSearch, setPaymentSearch] = useState("");
+  const [exportDate, setExportDate] = useState<Date | null>(null);
+  const [exportWeek, setExportWeek] = useState<Date | null>(null);
+  const [exportMonth, setExportMonth] = useState<Date | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   useEffect(() => {
     setMonths(generateMonths())
@@ -179,6 +187,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
           phone: data.phone,
           profileComplete: data.profileComplete,
           rollNo: data.rollNo,
+          uid: doc.id,
         };
       });
       setUsers(userList as User[]);
@@ -241,13 +250,13 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       const excelData = todayOrders.map((order) => {
         const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
         return {
-          "Order ID": order.id,
-          "User Name": order.userId,
-          "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
-          "Amount (₹)": order.totalAmount,
+        "Order ID": order.id,
+        "User Name": order.userId,
+        "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
+        "Amount (₹)": order.totalAmount,
           Date: orderDateObj ? orderDateObj.toLocaleDateString() : '',
           Time: orderDateObj ? orderDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
-          Status: order.status,
+        Status: order.status,
         }
       })
 
@@ -295,6 +304,57 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     }
   }
 
+  // Export helpers
+  const exportOrders = (ordersToExport: Order[], label: string) => {
+    setIsExporting(true);
+    try {
+      const excelData = ordersToExport.map((order) => ({
+        "Order ID": order.id,
+        "Order #": order.orderNumber,
+        "User ID": order.userId,
+        "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
+        "Amount (₹)": order.totalAmount,
+        Date: order.orderDate || (order.timestamp ? new Date(order.timestamp).toLocaleDateString() : ''),
+        Time: order.timestamp ? new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        Status: order.status,
+        "Collection Slot": order.collectionTimeSlot?.displayText || '',
+      }));
+      const worksheet = utils.json_to_sheet(excelData);
+      const workbook = utils.book_new();
+      utils.book_append_sheet(workbook, worksheet, "Orders");
+      worksheet["!cols"] = [
+        { wch: 20 }, { wch: 10 }, { wch: 30 }, { wch: 50 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 }
+      ];
+      const excelBuffer = write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `orders-${label}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error generating Excel file:", error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Filter helpers
+  const ordersForDay = exportDate
+    ? orders.filter(order => isSameDay(parseISO(order.timestamp), exportDate))
+    : [];
+  const ordersForWeek = exportWeek
+    ? orders.filter(order => isWithinInterval(parseISO(order.timestamp), { start: startOfWeek(exportWeek, { weekStartsOn: 1 }), end: endOfWeek(exportWeek, { weekStartsOn: 1 }) }))
+    : [];
+  const ordersForMonth = exportMonth
+    ? orders.filter(order => isWithinInterval(parseISO(order.timestamp), { start: startOfMonth(exportMonth), end: endOfMonth(exportMonth) }))
+    : [];
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 pb-10">
       <header className="bg-white shadow-sm border-b border-gray-200">
@@ -307,7 +367,6 @@ export default function Dashboard({ /* onLogout */ }: {}) {
             <div className="mt-4 sm:mt-0 flex items-center space-x-4">
               {user && <span className="text-sm text-gray-700">Welcome, {user.email}</span>}
               <div className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4 text-gray-500" />
                 <Select value={selectedMonth} onValueChange={setSelectedMonth}>
                   <SelectTrigger className="w-48">
                     <SelectValue placeholder="Select month" />
@@ -422,7 +481,10 @@ export default function Dashboard({ /* onLogout */ }: {}) {
             <TabsTrigger value="products" className="py-2">Products</TabsTrigger>
           </TabsList>
           <TabsContent value="orders">
-            <div className="mb-4 flex justify-end">
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <Button variant="secondary" onClick={() => setExportModalOpen(true)}>
+                Export Orders
+              </Button>
               <Input
                 placeholder="Search by Order # or Order ID"
                 value={orderSearch}
@@ -430,6 +492,62 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                 className="w-full max-w-xs"
               />
             </div>
+            <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Export Orders</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6">
+                  {/* Day picker */}
+                  <div className="flex gap-2 items-center">
+                    <DatePicker
+                      selected={exportDate ?? undefined}
+                      onChange={date => setExportDate(date as Date)}
+                      dateFormat="PPP"
+                      placeholderText="Pick a day"
+                      className="border rounded px-3 py-2"
+                      isClearable
+                    />
+                    <Button onClick={() => exportOrders(ordersForDay, exportDate ? format(exportDate, 'yyyy-MM-dd') : 'day')} disabled={!exportDate || isExporting} variant="secondary">
+                      Export Day
+                    </Button>
+                  </div>
+                  {/* Week picker */}
+                  <div className="flex gap-2 items-center">
+                    <DatePicker
+                      selected={exportWeek ?? undefined}
+                      onChange={date => setExportWeek(date as Date)}
+                      dateFormat="wo 'week of' MMMM yyyy"
+                      showWeekNumbers
+                      placeholderText="Pick a week"
+                      className="border rounded px-3 py-2"
+                      isClearable
+                    />
+                    <Button onClick={() => exportOrders(ordersForWeek, exportWeek ? `week-${format(startOfWeek(exportWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd')}` : 'week')} disabled={!exportWeek || isExporting} variant="secondary">
+                      Export Week
+                    </Button>
+                  </div>
+                  {/* Month picker */}
+                  <div className="flex gap-2 items-center">
+                    <DatePicker
+                      selected={exportMonth ?? undefined}
+                      onChange={date => setExportMonth(date as Date)}
+                      dateFormat="MMMM yyyy"
+                      showMonthYearPicker
+                      placeholderText="Pick a month"
+                      className="border rounded px-3 py-2"
+                      isClearable
+                    />
+                    <Button onClick={() => exportOrders(ordersForMonth, exportMonth ? format(exportMonth, 'yyyy-MM') : 'month')} disabled={!exportMonth || isExporting} variant="secondary">
+                      Export Month
+                  </Button>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setExportModalOpen(false)}>Close</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             <OrdersTable orders={filteredOrders} onStatusUpdate={handleStatusUpdate} payments={payments} users={users} search={orderSearch} />
           </TabsContent>
           <TabsContent value="payments">
@@ -444,7 +562,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
             <PaymentsTable payments={payments} users={users} orders={orders} search={paymentSearch} />
           </TabsContent>
           <TabsContent value="products">
-            <ProductManagement categories={categories} />
+            <ProductManagement />
           </TabsContent>
         </Tabs>
       </main>

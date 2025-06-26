@@ -55,4 +55,5 @@ export interface User {
   phone: string;
   profileComplete: boolean;
   rollNo: string;
+  uid?: string;
 } 
