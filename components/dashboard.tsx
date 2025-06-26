@@ -25,8 +25,9 @@ import { utils, write } from "xlsx"
 import { useAuth } from "@/hooks/useAuth"
 import { db } from "@/lib/firebase"
 import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc, getDoc } from "firebase/firestore"
-import { Item, Order } from "@/types/common-interfaces"
+import { Item, Order, Payment, User } from "@/types/common-interfaces"
 import { toast } from "@/hooks/use-toast"
+import PaymentsTable from "./payments-table"
 
 interface Category {
   id: string;
@@ -56,6 +57,10 @@ export default function Dashboard({ /* onLogout */ }: {}) {
   const [isDownloading, setIsDownloading] = useState(false)
   const { user, signOut } = useAuth()
   const [monthlyEarningsData, setMonthlyEarningsData] = useState<{ [key: string]: { amount: number; change: number; orders: number } }>({})
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [paymentSearch, setPaymentSearch] = useState("");
 
   useEffect(() => {
     setMonths(generateMonths())
@@ -140,10 +145,51 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       setMonthlyEarningsData(calculatedMonthlyEarnings)
     })
 
+    // Fetch payments
+    const paymentsCol = collection(db, "payments");
+    const unsubscribePayments = onSnapshot(paymentsCol, (snapshot) => {
+      const paymentList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          amount: data.amount,
+          method: data.method,
+          razorpay_order_id: data.razorpay_order_id,
+          razorpay_payment_id: data.razorpay_payment_id,
+          razorpay_signature: data.razorpay_signature,
+          status: data.status,
+          timestamp: data.timestamp ? (typeof data.timestamp === 'string' ? data.timestamp : data.timestamp.toDate().toISOString()) : '',
+          userId: data.userId,
+          verified: data.verified,
+        };
+      });
+      setPayments(paymentList as Payment[]);
+    });
+
+    // Fetch users
+    const usersCol = collection(db, "users");
+    const unsubscribeUsers = onSnapshot(usersCol, (snapshot) => {
+      const userList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          createdAt: data.createdAt ? (typeof data.createdAt === 'string' ? data.createdAt : data.createdAt.toDate().toISOString()) : '',
+          email: data.email,
+          isAdmin: data.isAdmin,
+          isCashier: data.isCashier,
+          name: data.name,
+          phone: data.phone,
+          profileComplete: data.profileComplete,
+          rollNo: data.rollNo,
+        };
+      });
+      setUsers(userList as User[]);
+    });
+
     const unsubscribeCategories = fetchCategories()
 
     return () => {
       unsubscribeOrders()
+      unsubscribePayments()
+      unsubscribeUsers()
     }
   }, [])
 
@@ -166,19 +212,10 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
   const filteredOrders = orders.filter((order) => {
     const matchesSearch =
-      searchQuery === "" ||
-      order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.userId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
-    const orderMonth = orderDateObj ? `${orderDateObj.getFullYear()}-${(orderDateObj.getMonth() + 1).toString().padStart(2, '0')}` : '';
-    const matchesMonth = selectedMonth === orderMonth;
-
-    const matchesCategory = selectedOrderCategory === "all" ||
-      order.items.some(item => item.categoryId === selectedOrderCategory);
-
-    return matchesSearch && matchesMonth && matchesCategory;
+      orderSearch === "" ||
+      (order.id && order.id.toLowerCase().includes(orderSearch.toLowerCase())) ||
+      (order.orderNumber && order.orderNumber.toString().includes(orderSearch));
+    return matchesSearch;
   })
 
   const currentMonthData = monthlyEarningsData[selectedMonth]
@@ -379,46 +416,35 @@ export default function Dashboard({ /* onLogout */ }: {}) {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-lg mx-auto mb-6 bg-gray-100 p-1 rounded-lg shadow-sm">
-            <TabsTrigger value="orders" className="py-2">
-              Orders
-            </TabsTrigger>
-            <TabsTrigger value="products" className="py-2">
-              Products
-            </TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 max-w-lg mx-auto mb-6 bg-gray-100 p-1 rounded-lg shadow-sm">
+            <TabsTrigger value="orders" className="py-2">Orders</TabsTrigger>
+            <TabsTrigger value="payments" className="py-2">Payments</TabsTrigger>
+            <TabsTrigger value="products" className="py-2">Products</TabsTrigger>
           </TabsList>
-
           <TabsContent value="orders">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-gray-800">Recent Orders</h3>
-              <div className="flex gap-4">
-                <Select value={selectedOrderCategory} onValueChange={setSelectedOrderCategory}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button onClick={downloadDailyOrders} disabled={isDownloading}>
-                        <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  {isDownloading ? "Downloading..." : "Download Today's Orders"}
-                  </Button>
-                </div>
+            <div className="mb-4 flex justify-end">
+              <Input
+                placeholder="Search by Order # or Order ID"
+                value={orderSearch}
+                onChange={e => setOrderSearch(e.target.value)}
+                className="w-full max-w-xs"
+              />
             </div>
-                <OrdersTable 
-                  orders={filteredOrders} 
-                  onStatusUpdate={handleStatusUpdate} 
-                />
+            <OrdersTable orders={filteredOrders} onStatusUpdate={handleStatusUpdate} payments={payments} users={users} search={orderSearch} />
           </TabsContent>
-
+          <TabsContent value="payments">
+            <div className="mb-4 flex justify-end">
+              <Input
+                placeholder="Search by Order #, or Order ID"
+                value={paymentSearch}
+                onChange={e => setPaymentSearch(e.target.value)}
+                className="w-full max-w-xs"
+              />
+            </div>
+            <PaymentsTable payments={payments} users={users} orders={orders} search={paymentSearch} />
+          </TabsContent>
           <TabsContent value="products">
-            <ProductManagement />
+            <ProductManagement categories={categories} />
           </TabsContent>
         </Tabs>
       </main>

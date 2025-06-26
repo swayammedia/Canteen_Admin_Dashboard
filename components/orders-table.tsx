@@ -9,10 +9,15 @@ import { doc, updateDoc, Timestamp, collection, getDocs } from "firebase/firesto
 import { Item, Order } from "@/types/common-interfaces"
 import { toast } from "@/hooks/use-toast"
 import Image from 'next/image'
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface OrdersTableProps {
   orders: Order[];
-  onStatusUpdate: (orderId: string, newStatus: string) => void; // Keep this prop for parent communication
+  onStatusUpdate: (orderId: string, newStatus: string) => void;
+  payments: Payment[];
+  users: User[];
+  search: string;
 }
 
 const statusOptions = [
@@ -36,9 +41,11 @@ const statusOptions = [
   },
 ]
 
-export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps) {
+export default function OrdersTable({ orders, onStatusUpdate, payments, users, search }: OrdersTableProps) {
   const [updatingOrders, setUpdatingOrders] = useState<Set<string>>(new Set());
   const [userNames, setUserNames] = useState<Record<string, string>>({}); // New state for user names
+  const [detailsOrder, setDetailsOrder] = useState<Order | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
 
   useEffect(() => {
     const fetchUsers = async () => {
@@ -85,6 +92,13 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
     return statusOptions.find((option) => option.value.toLowerCase() === normalizedStatus.toLowerCase()) || statusOptions[0];
   };
 
+  const filteredOrders = orders.filter(order => {
+    if (!search) return true;
+    const matchesOrderId = order.id && order.id.toLowerCase().includes(search.toLowerCase());
+    const matchesOrderNumber = order.orderNumber && order.orderNumber.toString().includes(search);
+    return matchesOrderId || matchesOrderNumber;
+  });
+
   return (
     <div className="overflow-hidden">
       <div className="overflow-x-auto">
@@ -100,21 +114,20 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
               <TableHead className="font-semibold text-gray-700">Time</TableHead>
               <TableHead className="font-semibold text-gray-700">Collection Slot</TableHead>
               <TableHead className="font-semibold text-gray-700">Status</TableHead>
+              <TableHead className="font-semibold text-gray-700">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {orders.length === 0 ? (
+            {filteredOrders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-12">
+                <TableCell colSpan={10} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center text-gray-500">
-                    <Search className="h-12 w-12 mb-4 text-gray-300" />
                     <p className="text-lg font-medium">No orders found</p>
-                    <p className="text-sm">All paid orders will appear here</p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
-              orders.map((order, index) => {
+              filteredOrders.map((order, index) => {
                 const statusConfig = getStatusConfig(order.status);
                 const StatusIcon = statusConfig.icon;
                 const isUpdating = updatingOrders.has(order.id);
@@ -179,6 +192,11 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                         {isUpdating && <div className="text-sm text-blue-600 animate-pulse">Updating...</div>}
                       </div>
                     </TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="outline" onClick={() => { setDetailsOrder(order); setDetailsOpen(true); }}>
+                        More Details
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })
@@ -186,6 +204,48 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
           </TableBody>
         </Table>
       </div>
+      {/* Details Dialog */}
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-w-2xl">
+          <DialogHeader>
+            <DialogTitle>Order Details</DialogTitle>
+            <DialogDescription>
+              {detailsOrder && (
+                <div className="space-y-4">
+                  <div>
+                    <h4 className="font-semibold">Order Info</h4>
+                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{JSON.stringify(detailsOrder, null, 2)}</pre>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold">Payment Info</h4>
+                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{
+                      (() => {
+                        const payment = payments.find(p =>
+                          (detailsOrder.razorpayOrderId && p.razorpay_order_id === detailsOrder.razorpayOrderId) ||
+                          (p.userId === detailsOrder.userId && Math.abs(new Date(p.timestamp).getTime() - new Date(detailsOrder.timestamp).getTime()) < 5 * 60 * 1000)
+                        );
+                        return payment ? JSON.stringify(payment, null, 2) : 'No payment found';
+                      })()
+                    }</pre>
+                  </div>
+                  <div>
+                    <h4 className="font-semibold">User Info</h4>
+                    <pre className="bg-gray-100 p-2 rounded text-xs overflow-x-auto">{
+                      (() => {
+                        const user = users.find(u => u.email && detailsOrder.userId && (u.email === detailsOrder.userId || u.rollNo === detailsOrder.userId));
+                        return user ? JSON.stringify(user, null, 2) : 'No user found';
+                      })()
+                    }</pre>
+                  </div>
+                </div>
+              )}
+            </DialogDescription>
+          </DialogHeader>
+          <DialogFooter>
+            <Button onClick={() => setDetailsOpen(false)} variant="outline">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

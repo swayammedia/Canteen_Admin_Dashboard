@@ -32,4 +32,27 @@ export interface Order {
   razorpayOrderId?: string;
   blockUntil?: string;
   displayText?: string;
+}
+
+export interface Payment {
+  amount: number;
+  method: string;
+  razorpay_order_id: string;
+  razorpay_payment_id: string;
+  razorpay_signature: string;
+  status: string;
+  timestamp: string; // store as ISO string for consistency
+  userId: string;
+  verified: boolean;
+}
+
+export interface User {
+  createdAt: string; // store as ISO string for consistency
+  email: string;
+  isAdmin: boolean;
+  isCashier: boolean;
+  name: string;
+  phone: string;
+  profileComplete: boolean;
+  rollNo: string;
 } 
