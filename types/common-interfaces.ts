@@ -7,11 +7,12 @@ export interface Item {
   category: string;
   categoryId: string;
   categoryName: string;
-  imageUrl: string;
+  imageUrl?: string;
   qty: number;
   defaultOrderStatus: string;
   isAvailable: boolean;
   categoryRef?: DocumentReference;
+  status?: string;
 }
 
 export interface Order {
@@ -19,12 +20,16 @@ export interface Order {
   userId: string;
   items: Item[];
   totalAmount: number;
-  timestamp: Timestamp;
+  timestamp: string;
   status: string;
   collectionTimeSlot?: {
     displayText: string;
     endTime: string;
     startTime: string;
   };
-  blockUntil?: Timestamp;
+  orderDate?: string;
+  orderNumber?: number;
+  razorpayOrderId?: string;
+  blockUntil?: string;
+  displayText?: string;
 } 

@@ -80,50 +80,28 @@ export default function Dashboard({ /* onLogout */ }: {}) {
 
       const ordersListPromises = snapshot.docs.map(async (orderDoc) => {
         const data = orderDoc.data();
-
-        const itemsPromises = Array.isArray(data.items) ? data.items.map(async (item: any) => {
-          let resolvedCategoryId = item.categoryId || '';
-          let resolvedCategoryName = item.categoryName || '';
-          let fetchedItemData: any = null; // Initialize to null
-
-          if (!resolvedCategoryId && !item.categoryRef && item.id) {
-            try {
-              const itemDoc = await getDoc(doc(db, "items", item.id));
-              if (itemDoc.exists()) {
-                fetchedItemData = itemDoc.data(); // Assign data if doc exists
-                resolvedCategoryId = fetchedItemData.categoryId || fetchedItemData.category?.toLowerCase().replace(/\s/g, '') || '';
-                resolvedCategoryName = fetchedItemData.categoryName || fetchedItemData.category || '';
-              }
-            } catch (error) {
-              console.error("Error fetching item details for order item:", item.id, error);
-            }
-          }
-
-          return {
-            id: item.id || fetchedItemData?.id || '',
-            name: item.name || fetchedItemData?.name || '',
-            price: item.price || fetchedItemData?.price || 0,
-            category: resolvedCategoryName || item.category || fetchedItemData?.category || '',
-            categoryId: resolvedCategoryId || item.categoryId || fetchedItemData?.categoryId || '',
-            categoryName: resolvedCategoryName || item.categoryName || fetchedItemData?.categoryName || '',
-            imageUrl: item.imageUrl || fetchedItemData?.imageUrl || '',
-            qty: item.qty || fetchedItemData?.qty || 0,
-            defaultOrderStatus: item.defaultOrderStatus || fetchedItemData?.defaultOrderStatus || 'Preparing',
-            categoryRef: item.categoryRef || fetchedItemData?.categoryRef || undefined,
-          };
-        }) : [];
-
-        const items = await Promise.all(itemsPromises);
+        const items = Array.isArray(data.items) ? data.items.map((item: any) => ({
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          qty: item.qty,
+          status: item.status,
+          imageUrl: item.imageUrl,
+        })) : [];
 
         return {
           id: orderDoc.id,
           userId: data.userId || '',
           items: items,
           totalAmount: data.totalAmount || 0,
-          timestamp: data.timestamp instanceof Timestamp ? data.timestamp : new Timestamp(0, 0),
-          status: data.status || 'Preparing the Order',
+          timestamp: data.timestamp || '',
+          status: data.status || '',
           collectionTimeSlot: data.collectionTimeSlot || undefined,
+          orderDate: data.orderDate || '',
+          orderNumber: data.orderNumber || undefined,
+          razorpayOrderId: data.razorpayOrderId || '',
           blockUntil: data.blockUntil || undefined,
+          displayText: data.collectionTimeSlot?.displayText || '',
         };
       });
       const ordersList = await Promise.all(ordersListPromises);
@@ -193,9 +171,9 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       order.userId.toLowerCase().includes(searchQuery.toLowerCase()) ||
       order.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
 
-    const orderDate = order.timestamp.toDate()
-    const orderMonth = `${orderDate.getFullYear()}-${(orderDate.getMonth() + 1).toString().padStart(2, '0')}`
-    const matchesMonth = selectedMonth === orderMonth
+    const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+    const orderMonth = orderDateObj ? `${orderDateObj.getFullYear()}-${(orderDateObj.getMonth() + 1).toString().padStart(2, '0')}` : '';
+    const matchesMonth = selectedMonth === orderMonth;
 
     const matchesCategory = selectedOrderCategory === "all" ||
       order.items.some(item => item.categoryId === selectedOrderCategory);
@@ -216,21 +194,25 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       const today = new Date()
       const todayString = today.toISOString().split("T")[0]
       const todayOrders = orders.filter((order) => {
-        const orderDate = order.timestamp.toDate()
-        return orderDate.getFullYear() === today.getFullYear() &&
-          orderDate.getMonth() === today.getMonth() &&
-          orderDate.getDate() === today.getDate()
+        const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+        return orderDateObj &&
+          orderDateObj.getFullYear() === today.getFullYear() &&
+          orderDateObj.getMonth() === today.getMonth() &&
+          orderDateObj.getDate() === today.getDate();
       })
 
-      const excelData = todayOrders.map((order) => ({
-        "Order ID": order.id,
-        "User Name": order.userId,
-        "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
-        "Amount (₹)": order.totalAmount,
-        Date: order.timestamp.toDate().toLocaleDateString(),
-        Time: order.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-        Status: order.status,
-      }))
+      const excelData = todayOrders.map((order) => {
+        const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+        return {
+          "Order ID": order.id,
+          "User Name": order.userId,
+          "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
+          "Amount (₹)": order.totalAmount,
+          Date: orderDateObj ? orderDateObj.toLocaleDateString() : '',
+          Time: orderDateObj ? orderDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+          Status: order.status,
+        }
+      })
 
       const worksheet = utils.json_to_sheet(excelData)
       const workbook = utils.book_new()

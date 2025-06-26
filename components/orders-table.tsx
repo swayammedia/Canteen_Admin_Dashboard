@@ -91,12 +91,14 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
         <Table>
           <TableHeader className="bg-gray-50">
             <TableRow>
+              <TableHead className="font-semibold text-gray-700">Order #</TableHead>
               <TableHead className="font-semibold text-gray-700">Token</TableHead>
               <TableHead className="font-semibold text-gray-700">User Name</TableHead>
               <TableHead className="font-semibold text-gray-700">Items Ordered</TableHead>
               <TableHead className="font-semibold text-gray-700">Amount</TableHead>
               <TableHead className="font-semibold text-gray-700">Date</TableHead>
               <TableHead className="font-semibold text-gray-700">Time</TableHead>
+              <TableHead className="font-semibold text-gray-700">Collection Slot</TableHead>
               <TableHead className="font-semibold text-gray-700">Status</TableHead>
             </TableRow>
           </TableHeader>
@@ -116,24 +118,19 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                 const statusConfig = getStatusConfig(order.status);
                 const StatusIcon = statusConfig.icon;
                 const isUpdating = updatingOrders.has(order.id);
-                const orderDate = order.timestamp.toDate().toLocaleDateString();
-                const orderTime = order.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
+                // Parse string timestamp for date/time
+                const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+                const orderDate = orderDateObj ? orderDateObj.toLocaleDateString() : '';
+                const orderTime = orderDateObj ? orderDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
                 return (
                   <TableRow key={order.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}>
+                    <TableCell className="font-bold text-purple-600">{order.orderNumber ?? '-'}</TableCell>
                     <TableCell className="font-bold text-blue-600">{order.id}</TableCell>
                     <TableCell className="text-gray-700">{userNames[order.userId] || order.userId}</TableCell>
                     <TableCell>
                       <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600 flex flex-wrap gap-2">
                         {order.items.map(item => (
                           <div key={item.id} className="flex items-center gap-2 mb-1">
-                            <Image
-                              src={item.imageUrl || "/placeholder.svg"}
-                              alt={item.name}
-                              width={32}
-                              height={32}
-                              className="w-8 h-8 object-cover rounded"
-                            />
                             <span>{item.name} (x{item.qty})</span>
                           </div>
                         ))}
@@ -143,7 +140,7 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                     <TableCell>
                       <div className="flex items-center text-gray-600">
                         <Calendar className="h-4 w-4 mr-1 text-gray-400" />
-                        <span className="text-sm">{orderDate}</span>
+                        <span className="text-sm">{order.orderDate || orderDate}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -151,6 +148,9 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                         <Clock className="h-4 w-4 mr-1 text-gray-400" />
                         <span className="text-sm">{orderTime}</span>
                       </div>
+                    </TableCell>
+                    <TableCell>
+                      <span className="text-sm text-gray-700">{order.collectionTimeSlot?.displayText || '-'}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
