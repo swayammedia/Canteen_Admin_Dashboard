@@ -224,14 +224,18 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       orderSearch === "" ||
       (order.id && order.id.toLowerCase().includes(orderSearch.toLowerCase())) ||
       (order.orderNumber && order.orderNumber.toString().includes(orderSearch));
-    return matchesSearch;
+    // Month filter
+    const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+    const orderMonth = orderDateObj ? `${orderDateObj.getFullYear()}-${(orderDateObj.getMonth() + 1).toString().padStart(2, '0')}` : '';
+    const matchesMonth = selectedMonth === orderMonth;
+    return matchesSearch && matchesMonth;
   })
 
   const currentMonthData = monthlyEarningsData[selectedMonth]
 
-  const deliveredOrders = orders.filter((order) => order.status === "Delivered").length
-  const preparingOrders = orders.filter((order) => order.status === "Preparing").length
-  const readyOrders = orders.filter((order) => order.status === "Ready").length
+  const deliveredOrders = filteredOrders.filter((order) => order.status === "Delivered").length
+  const preparingOrders = filteredOrders.filter((order) => order.status === "Preparing").length
+  const readyOrders = filteredOrders.filter((order) => order.status === "Ready").length
 
   const downloadDailyOrders = () => {
     setIsDownloading(true)
@@ -404,11 +408,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                 <span className="text-3xl font-bold">₹{(currentMonthData?.amount || 0).toFixed(2)}</span>
               </div>
               <div className="flex items-center mt-2 text-sm text-blue-100">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                <span className={`${currentMonthData && currentMonthData.change >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {currentMonthData && currentMonthData.change >= 0 ? "+" : ""}
-                  {currentMonthData?.change || 0}% from last month
-                </span>
+                Revenue this month
               </div>
             </CardContent>
           </Card>
@@ -482,7 +482,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
           </TabsList>
           <TabsContent value="orders">
             <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
-              <Button variant="secondary" onClick={() => setExportModalOpen(true)}>
+              <Button className="bg-blue-600 text-white hover:bg-blue-700 font-semibold shadow" onClick={() => setExportModalOpen(true)}>
                 Export Orders
               </Button>
               <Input
@@ -508,7 +508,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                       className="border rounded px-3 py-2"
                       isClearable
                     />
-                    <Button onClick={() => exportOrders(ordersForDay, exportDate ? format(exportDate, 'yyyy-MM-dd') : 'day')} disabled={!exportDate || isExporting} variant="secondary">
+                    <Button onClick={() => exportOrders(ordersForDay, exportDate ? format(exportDate, 'yyyy-MM-dd') : 'day')} disabled={!exportDate || isExporting} className="bg-green-600 text-white hover:bg-green-700 font-semibold">
                       Export Day
                     </Button>
                   </div>
@@ -523,7 +523,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                       className="border rounded px-3 py-2"
                       isClearable
                     />
-                    <Button onClick={() => exportOrders(ordersForWeek, exportWeek ? `week-${format(startOfWeek(exportWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd')}` : 'week')} disabled={!exportWeek || isExporting} variant="secondary">
+                    <Button onClick={() => exportOrders(ordersForWeek, exportWeek ? `week-${format(startOfWeek(exportWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd')}` : 'week')} disabled={!exportWeek || isExporting} className="bg-green-600 text-white hover:bg-green-700 font-semibold">
                       Export Week
                     </Button>
                   </div>
@@ -538,9 +538,9 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                       className="border rounded px-3 py-2"
                       isClearable
                     />
-                    <Button onClick={() => exportOrders(ordersForMonth, exportMonth ? format(exportMonth, 'yyyy-MM') : 'month')} disabled={!exportMonth || isExporting} variant="secondary">
+                    <Button onClick={() => exportOrders(ordersForMonth, exportMonth ? format(exportMonth, 'yyyy-MM') : 'month')} disabled={!exportMonth || isExporting} className="bg-green-600 text-white hover:bg-green-700 font-semibold">
                       Export Month
-                  </Button>
+                    </Button>
                   </div>
                 </div>
                 <DialogFooter>
