@@ -11,7 +11,6 @@ import {
 interface AuthContextType {
   user: FirebaseUser | null;
   loading: boolean;
-  signUp: (email: string, password: string) => Promise<any>;
   signIn: (email: string, password: string) => Promise<any>;
   signOut: () => Promise<void>;
 }
@@ -30,10 +29,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const signUp = async (email: string, password: string) => {
-    return createUserWithEmailAndPassword(auth, email, password);
-  };
-
   const signIn = async (email: string, password: string) => {
     return signInWithEmailAndPassword(auth, email, password);
   };
@@ -42,7 +37,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return firebaseSignOut(auth);
   };
 
-  const value = { user, loading, signUp, signIn, signOut };
+  const value = { user, loading, signIn, signOut };
 
   return (
     <AuthContext.Provider value={value}>

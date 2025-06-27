@@ -12,19 +12,14 @@ import { useAuth } from "@/hooks/useAuth"
 export default function PasswordGate() {
   const [email, setEmail] = useState("")
   const [password, setPassword] = useState("")
-  const [isLogin, setIsLogin] = useState(true) // true for login, false for signup
   const [error, setError] = useState<string | null>(null)
-  const { signIn, signUp } = useAuth()
+  const { signIn } = useAuth()
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError(null)
     try {
-      if (isLogin) {
-        await signIn(email, password)
-      } else {
-        await signUp(email, password)
-      }
+      await signIn(email, password)
     } catch (err: any) {
       setError(err.message)
     }
@@ -75,15 +70,7 @@ export default function PasswordGate() {
               type="submit"
               className="w-full h-12 bg-gradient-to-r from-blue-500 to-indigo-600 hover:from-blue-600 hover:to-indigo-700 text-white font-medium shadow-lg hover:shadow-xl transition-all duration-200"
             >
-              {isLogin ? "Sign In" : "Sign Up"}
-            </Button>
-            <Button
-              type="button"
-              onClick={() => setIsLogin(!isLogin)}
-              variant="link"
-              className="w-full text-blue-600 hover:underline"
-            >
-              {isLogin ? "Need an account? Sign Up" : "Already have an account? Sign In"}
+              Sign In
             </Button>
           </form>
         </CardContent>

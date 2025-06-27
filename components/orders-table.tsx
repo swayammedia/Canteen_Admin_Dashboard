@@ -3,60 +3,63 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Badge } from "@/components/ui/badge"
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select"
 import { Calendar, Clock, Search, ChefHat, Package, CheckCircle } from "lucide-react"
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { db } from "@/lib/firebase"
-import { doc, updateDoc, Timestamp } from "firebase/firestore"
-
-interface Item {
-  id: string;
-  name: string;
-  description: string;
-  price: number;
-  category: string;
-  categoryId: string;
-  categoryName: string;
-  imageUrl: string;
-  qty: number;
-  defaultOrderStatus: string;
-}
-
-interface Order {
-  id: string;
-  userId: string;
-  items: Item[];
-  totalAmount: number;
-  timestamp: Timestamp;
-  status: string;
-}
+import { doc, updateDoc, Timestamp, collection, getDocs } from "firebase/firestore"
+import { Item, Order, Payment, User } from "@/types/common-interfaces"
+import { toast } from "@/hooks/use-toast"
+import Image from 'next/image'
+import { Dialog, DialogContent, DialogTitle, DialogDescription, DialogHeader, DialogFooter } from "@/components/ui/dialog";
+import { Button } from "@/components/ui/button";
 
 interface OrdersTableProps {
   orders: Order[];
-  onStatusUpdate: (orderId: string, newStatus: string) => void; // Keep this prop for parent communication
+  onStatusUpdate: (orderId: string, newStatus: string) => void;
+  payments: Payment[];
+  users: User[];
+  search: string;
 }
 
 const statusOptions = [
   {
-    value: "Preparing the Order",
+    value: "Preparing",
     label: "Preparing the Order",
     color: "bg-yellow-100 text-yellow-800 border-yellow-300",
     icon: ChefHat,
   },
   {
-    value: "Collect your order",
+    value: "Ready",
     label: "Collect your order",
     color: "bg-blue-100 text-blue-800 border-blue-300",
     icon: Package,
   },
   {
-    value: "Order Delivered",
+    value: "Delivered",
     label: "Order Delivered",
     color: "bg-green-100 text-green-800 border-green-300",
     icon: CheckCircle,
   },
 ]
 
-export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps) {
+export default function OrdersTable({ orders, onStatusUpdate, payments, users, search }: OrdersTableProps) {
   const [updatingOrders, setUpdatingOrders] = useState<Set<string>>(new Set());
+  const [userNames, setUserNames] = useState<Record<string, string>>({}); // New state for user names
+  const [detailsOrder, setDetailsOrder] = useState<Order | null>(null);
+  const [detailsOpen, setDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    const fetchUsers = async () => {
+      const usersCol = collection(db, "users");
+      const userSnapshot = await getDocs(usersCol);
+      const namesMap: Record<string, string> = {};
+      userSnapshot.docs.forEach(doc => {
+        namesMap[doc.id] = doc.data().name || "Unknown User"; // Assuming 'name' field in user document
+      });
+      setUserNames(namesMap);
+    };
+
+    fetchUsers();
+  }, []); // Run once on component mount
 
   const handleStatusChange = async (orderId: string, newStatus: string) => {
     setUpdatingOrders((prev) => new Set(prev).add(orderId));
@@ -65,10 +68,16 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
       const orderRef = doc(db, "orders", orderId);
       await updateDoc(orderRef, { status: newStatus });
       onStatusUpdate(orderId, newStatus); // Notify parent component to update its state
-      alert(`Order ${orderId} status updated to: ${newStatus}`);
+      toast({
+        title: "Order Status Updated",
+        description: `Order ${orderId} status updated to: ${newStatus}`,
+      });
     } catch (error) {
       console.error("Error updating order status:", error);
-      alert("Failed to update order status. Please try again.");
+      toast({
+        title: "Failed to Update Order Status",
+        description: "Failed to update order status. Please try again.",
+      });
     } finally {
       setUpdatingOrders((prev) => {
         const newSet = new Set(prev);
@@ -79,8 +88,16 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
   };
 
   const getStatusConfig = (status: string) => {
-    return statusOptions.find((option) => option.value === status) || statusOptions[0];
+    const normalizedStatus = status.trim();
+    return statusOptions.find((option) => option.value.toLowerCase() === normalizedStatus.toLowerCase()) || statusOptions[0];
   };
+
+  const filteredOrders = orders.filter(order => {
+    if (!search) return true;
+    const matchesOrderId = order.id && order.id.toLowerCase().includes(search.toLowerCase());
+    const matchesOrderNumber = order.orderNumber && order.orderNumber.toString().includes(search);
+    return matchesOrderId || matchesOrderNumber;
+  });
 
   return (
     <div className="overflow-hidden">
@@ -88,49 +105,55 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
         <Table>
           <TableHeader className="bg-gray-50">
             <TableRow>
+              <TableHead className="font-semibold text-gray-700">Order #</TableHead>
               <TableHead className="font-semibold text-gray-700">Token</TableHead>
-              <TableHead className="font-semibold text-gray-700">User Email</TableHead>
+              <TableHead className="font-semibold text-gray-700">User Name</TableHead>
               <TableHead className="font-semibold text-gray-700">Items Ordered</TableHead>
               <TableHead className="font-semibold text-gray-700">Amount</TableHead>
               <TableHead className="font-semibold text-gray-700">Date</TableHead>
               <TableHead className="font-semibold text-gray-700">Time</TableHead>
+              <TableHead className="font-semibold text-gray-700">Collection Slot</TableHead>
               <TableHead className="font-semibold text-gray-700">Status</TableHead>
-              <TableHead className="font-semibold text-gray-700">Update Status</TableHead>
+              <TableHead className="font-semibold text-gray-700">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {orders.length === 0 ? (
+            {filteredOrders.length === 0 ? (
               <TableRow>
-                <TableCell colSpan={8} className="text-center py-12">
+                <TableCell colSpan={10} className="text-center py-12">
                   <div className="flex flex-col items-center justify-center text-gray-500">
-                    <Search className="h-12 w-12 mb-4 text-gray-300" />
                     <p className="text-lg font-medium">No orders found</p>
-                    <p className="text-sm">All paid orders will appear here</p>
                   </div>
                 </TableCell>
               </TableRow>
             ) : (
-              orders.map((order, index) => {
+              filteredOrders.map((order, index) => {
                 const statusConfig = getStatusConfig(order.status);
                 const StatusIcon = statusConfig.icon;
                 const isUpdating = updatingOrders.has(order.id);
-                const orderDate = order.timestamp.toDate().toLocaleDateString();
-                const orderTime = order.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-
+                // Parse string timestamp for date/time
+                const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+                const orderDate = orderDateObj ? orderDateObj.toLocaleDateString() : '';
+                const orderTime = orderDateObj ? orderDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
                 return (
                   <TableRow key={order.id} className={index % 2 === 0 ? "bg-white" : "bg-gray-50/50"}>
-                    <TableCell className="font-bold text-blue-600">{order.id.substring(0, 8).toUpperCase()}</TableCell>
-                    <TableCell className="text-gray-700">{order.userId}</TableCell>
+                    <TableCell className="font-bold text-purple-600">{order.orderNumber ?? '-'}</TableCell>
+                    <TableCell className="font-bold text-blue-600">{order.id}</TableCell>
+                    <TableCell className="text-gray-700">{userNames[order.userId] || order.userId}</TableCell>
                     <TableCell>
-                      <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600">
-                        {order.items.map(item => `${item.name} (x${item.qty})`).join(", ")}
+                      <div className="max-w-xs sm:max-w-md overflow-hidden text-ellipsis text-gray-600 flex flex-wrap gap-2">
+                        {order.items.map(item => (
+                          <div key={item.id} className="flex items-center gap-2 mb-1">
+                            <span>{item.name} (x{item.qty})</span>
+                          </div>
+                        ))}
                       </div>
                     </TableCell>
                     <TableCell className="font-semibold text-green-600">₹{order.totalAmount.toFixed(2)}</TableCell>
                     <TableCell>
                       <div className="flex items-center text-gray-600">
                         <Calendar className="h-4 w-4 mr-1 text-gray-400" />
-                        <span className="text-sm">{orderDate}</span>
+                        <span className="text-sm">{order.orderDate || orderDate}</span>
                       </div>
                     </TableCell>
                     <TableCell>
@@ -140,13 +163,7 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                       </div>
                     </TableCell>
                     <TableCell>
-                      <Badge
-                        variant="outline"
-                        className={`${statusConfig.color} font-medium flex items-center gap-1 w-fit`}
-                      >
-                        <StatusIcon className="h-3 w-3" />
-                        {statusConfig.label}
-                      </Badge>
+                      <span className="text-sm text-gray-700">{order.collectionTimeSlot?.displayText || '-'}</span>
                     </TableCell>
                     <TableCell>
                       <div className="flex items-center gap-2">
@@ -155,8 +172,8 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                           onValueChange={(newStatus) => handleStatusChange(order.id, newStatus)}
                           disabled={isUpdating}
                         >
-                          <SelectTrigger className="w-48">
-                            <SelectValue />
+                          <SelectTrigger className={`w-48 ${statusConfig.color}`}>
+                            <SelectValue>{statusConfig.label}</SelectValue>
                           </SelectTrigger>
                           <SelectContent>
                             {statusOptions.map((option) => {
@@ -175,6 +192,11 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
                         {isUpdating && <div className="text-sm text-blue-600 animate-pulse">Updating...</div>}
                       </div>
                     </TableCell>
+                    <TableCell>
+                      <Button size="sm" variant="outline" onClick={() => { setDetailsOrder(order); setDetailsOpen(true); }}>
+                        More Details
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 );
               })
@@ -182,6 +204,97 @@ export default function OrdersTable({ orders, onStatusUpdate }: OrdersTableProps
           </TableBody>
         </Table>
       </div>
+      {/* Details Dialog */}
+      <Dialog open={detailsOpen} onOpenChange={setDetailsOpen}>
+        <DialogContent className="max-w-2xl p-8 m-4 rounded-2xl shadow-2xl border bg-white max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Order Details</DialogTitle>
+          </DialogHeader>
+          {detailsOrder && (
+            <div className="space-y-10">
+              <div className="pb-6 border-b mb-6">
+                <h4 className="font-semibold mb-4 text-lg">Order Info</h4>
+                <div className="grid grid-cols-2 gap-4 text-sm">
+                  <div><span className="font-medium">Order #:</span> {detailsOrder.orderNumber ?? '-'}</div>
+                  <div><span className="font-medium">Token:</span> {detailsOrder.id}</div>
+                  <div><span className="font-medium">Date:</span> {detailsOrder.orderDate || (detailsOrder.timestamp ? new Date(detailsOrder.timestamp).toLocaleDateString() : '-')}</div>
+                  <div><span className="font-medium">Time:</span> {detailsOrder.timestamp ? new Date(detailsOrder.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '-'}</div>
+                  <div><span className="font-medium">Status:</span> <span className="inline-block px-2 py-1 rounded bg-gray-100 border text-xs">{detailsOrder.status}</span></div>
+                  <div><span className="font-medium">Collection Slot:</span> {detailsOrder.collectionTimeSlot?.displayText || '-'}</div>
+                  <div><span className="font-medium">Total Amount:</span> ₹{detailsOrder.totalAmount.toFixed(2)}</div>
+                </div>
+              </div>
+              <div className="pb-6 border-b mb-6">
+                <h4 className="font-semibold mb-4 text-lg">Payment Info</h4>
+                {(() => {
+                  const payment = payments.find(p =>
+                    (detailsOrder.razorpayOrderId && p.razorpay_order_id === detailsOrder.razorpayOrderId) ||
+                    (p.userId === detailsOrder.userId && Math.abs(new Date(p.timestamp).getTime() - new Date(detailsOrder.timestamp).getTime()) < 5 * 60 * 1000)
+                  );
+                  if (!payment) return <div className="text-gray-500">No payment found</div>;
+                  return (
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div><span className="font-medium">Status:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${payment.status === 'success' ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{payment.status}</span></div>
+                      <div><span className="font-medium">Method:</span> {payment.method}</div>
+                      <div><span className="font-medium">Amount:</span> ₹{payment.amount}</div>
+                      <div><span className="font-medium">Payment ID:</span> {payment.razorpay_payment_id}</div>
+                      <div><span className="font-medium">Order ID:</span> {payment.razorpay_order_id}</div>
+                      <div><span className="font-medium">Timestamp:</span> {payment.timestamp ? new Date(payment.timestamp).toLocaleString() : '-'}</div>
+                      <div><span className="font-medium">Verified:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${payment.verified ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{payment.verified ? 'Yes' : 'No'}</span></div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="pb-2">
+                <h4 className="font-semibold mb-4 text-lg">User Info</h4>
+                {(() => {
+                  const user = users.find(u => detailsOrder.userId && (u.uid === detailsOrder.userId || u.email === detailsOrder.userId || u.rollNo === detailsOrder.userId));
+                  if (!user) return <div className="text-gray-500">No user found</div>;
+                  return (
+                    <div className="grid grid-cols-2 gap-4 text-sm">
+                      <div><span className="font-medium">Name:</span> {user.name}</div>
+                      <div><span className="font-medium">Email:</span> {user.email}</div>
+                      <div><span className="font-medium">Phone:</span> {user.phone}</div>
+                      <div><span className="font-medium">Roll No:</span> {user.rollNo}</div>
+                      <div><span className="font-medium">Profile Complete:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${user.profileComplete ? 'bg-green-100 text-green-700' : 'bg-red-100 text-red-700'}`}>{user.profileComplete ? 'Yes' : 'No'}</span></div>
+                      <div><span className="font-medium">Admin:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${user.isAdmin ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}`}>{user.isAdmin ? 'Yes' : 'No'}</span></div>
+                      <div><span className="font-medium">Cashier:</span> <span className={`inline-block px-2 py-1 rounded text-xs ${user.isCashier ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-700'}`}>{user.isCashier ? 'Yes' : 'No'}</span></div>
+                    </div>
+                  );
+                })()}
+              </div>
+              <div className="mt-6">
+                <h5 className="font-medium mb-2">Items Ordered</h5>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Name</TableHead>
+                      <TableHead>Qty</TableHead>
+                      <TableHead>Price</TableHead>
+                      <TableHead>Status</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {detailsOrder.items.map(item => (
+                      <TableRow key={item.id}>
+                        <TableCell>{item.name}</TableCell>
+                        <TableCell>{item.qty}</TableCell>
+                        <TableCell>₹{item.price}</TableCell>
+                        <TableCell>
+                          <span className={`inline-block px-2 py-1 rounded text-xs ${item.status === 'ready' ? 'bg-green-100 text-green-700' : item.status === 'preparing' ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-700'}`}>{item.status || '-'}</span>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button onClick={() => setDetailsOpen(false)} variant="outline">Close</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

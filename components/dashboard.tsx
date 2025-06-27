@@ -9,7 +9,6 @@ import {
   Search,
   IndianRupee,
   TrendingUp,
-  Calendar,
   Clock,
   Users,
   ShoppingBag,
@@ -24,29 +23,14 @@ import { Button } from "@/components/ui/button"
 import { utils, write } from "xlsx"
 import { useAuth } from "@/hooks/useAuth"
 import { db } from "@/lib/firebase"
-import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc } from "firebase/firestore"
-
-interface Item {
-  id: string;
-  name: string;
-  price: number;
-  qty: number;
-}
-
-interface Order {
-  id: string;
-  userId: string;
-  items: Item[];
-  totalAmount: number;
-  timestamp: Timestamp;
-  status: string;
-  collectionTimeSlot?: {
-    displayText: string;
-    endTime: string;
-    startTime: string;
-  };
-  blockUntil?: Timestamp;
-}
+import { collection, query, onSnapshot, orderBy, Timestamp, doc, updateDoc, getDoc } from "firebase/firestore"
+import { Item, Order, Payment, User } from "@/types/common-interfaces"
+import { toast } from "@/hooks/use-toast"
+import PaymentsTable from "./payments-table"
+import { format, startOfWeek, endOfWeek, startOfMonth, endOfMonth, isSameDay, isWithinInterval, parseISO } from "date-fns"
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog"
+import DatePicker from "react-datepicker";
+import "react-datepicker/dist/react-datepicker.css";
 
 interface Category {
   id: string;
@@ -76,6 +60,15 @@ export default function Dashboard({ /* onLogout */ }: {}) {
   const [isDownloading, setIsDownloading] = useState(false)
   const { user, signOut } = useAuth()
   const [monthlyEarningsData, setMonthlyEarningsData] = useState<{ [key: string]: { amount: number; change: number; orders: number } }>({})
+  const [payments, setPayments] = useState<Payment[]>([]);
+  const [users, setUsers] = useState<User[]>([]);
+  const [orderSearch, setOrderSearch] = useState("");
+  const [paymentSearch, setPaymentSearch] = useState("");
+  const [exportDate, setExportDate] = useState<Date | null>(null);
+  const [exportWeek, setExportWeek] = useState<Date | null>(null);
+  const [exportMonth, setExportMonth] = useState<Date | null>(null);
+  const [isExporting, setIsExporting] = useState(false);
+  const [exportModalOpen, setExportModalOpen] = useState(false);
 
   useEffect(() => {
     setMonths(generateMonths())
@@ -94,38 +87,40 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     }
 
     const q = query(collection(db, "orders"), orderBy("timestamp", "desc"))
-    const unsubscribeOrders = onSnapshot(q, (snapshot) => {
-      console.log("Firestore Debug: Snapshot received.", snapshot.docs.length, "documents.");
+    const unsubscribeOrders = onSnapshot(q, async (snapshot) => {
       if (snapshot.empty) {
-        console.log("Firestore Debug: No documents found in 'orders' collection.");
       }
 
-      const ordersList = snapshot.docs.map(doc => {
-        const data = doc.data();
-        // console.log("Firestore Debug: Processing document with ID:", doc.id, "Data:", data);
-
+      const ordersListPromises = snapshot.docs.map(async (orderDoc) => {
+        const data = orderDoc.data();
         const items = Array.isArray(data.items) ? data.items.map((item: any) => ({
-          id: item.id || '',
-          name: item.name || '',
-          price: item.price || 0,
-          qty: item.qty || 0,
+          id: item.id,
+          name: item.name,
+          price: item.price,
+          qty: item.qty,
+          status: item.status,
+          imageUrl: item.imageUrl,
         })) : [];
 
         return {
-          id: doc.id,
+          id: orderDoc.id,
           userId: data.userId || '',
           items: items,
           totalAmount: data.totalAmount || 0,
-          timestamp: data.timestamp instanceof Timestamp ? data.timestamp : new Timestamp(0, 0),
+          timestamp: data.timestamp || '',
           status: data.status || '',
           collectionTimeSlot: data.collectionTimeSlot || undefined,
+          orderDate: data.orderDate || '',
+          orderNumber: data.orderNumber || undefined,
+          razorpayOrderId: data.razorpayOrderId || '',
           blockUntil: data.blockUntil || undefined,
+          displayText: data.collectionTimeSlot?.displayText || '',
         };
-      }) as Order[];
-      setOrders(ordersList)
-      console.log("Firestore Debug: Orders list mapped (full data):", ordersList);
+      });
+      const ordersList = await Promise.all(ordersListPromises);
+      setOrders(ordersList as Order[]);
 
-      const earnings: { [key: string]: { amount: number; orders: number } } = {}
+      const earnings: { [key: string]: { amount: number; orders: number } } = {};
       ordersList.forEach(order => {
         const date = order.timestamp instanceof Timestamp ? order.timestamp.toDate() : new Date();
         const yearMonth = `${date.getFullYear()}-${(date.getMonth() + 1).toString().padStart(2, '0')}`
@@ -158,10 +153,52 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       setMonthlyEarningsData(calculatedMonthlyEarnings)
     })
 
+    // Fetch payments
+    const paymentsCol = collection(db, "payments");
+    const unsubscribePayments = onSnapshot(paymentsCol, (snapshot) => {
+      const paymentList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          amount: data.amount,
+          method: data.method,
+          razorpay_order_id: data.razorpay_order_id,
+          razorpay_payment_id: data.razorpay_payment_id,
+          razorpay_signature: data.razorpay_signature,
+          status: data.status,
+          timestamp: data.timestamp ? (typeof data.timestamp === 'string' ? data.timestamp : data.timestamp.toDate().toISOString()) : '',
+          userId: data.userId,
+          verified: data.verified,
+        };
+      });
+      setPayments(paymentList as Payment[]);
+    });
+
+    // Fetch users
+    const usersCol = collection(db, "users");
+    const unsubscribeUsers = onSnapshot(usersCol, (snapshot) => {
+      const userList = snapshot.docs.map(doc => {
+        const data = doc.data();
+        return {
+          createdAt: data.createdAt ? (typeof data.createdAt === 'string' ? data.createdAt : data.createdAt.toDate().toISOString()) : '',
+          email: data.email,
+          isAdmin: data.isAdmin,
+          isCashier: data.isCashier,
+          name: data.name,
+          phone: data.phone,
+          profileComplete: data.profileComplete,
+          rollNo: data.rollNo,
+          uid: doc.id,
+        };
+      });
+      setUsers(userList as User[]);
+    });
+
     const unsubscribeCategories = fetchCategories()
 
     return () => {
       unsubscribeOrders()
+      unsubscribePayments()
+      unsubscribeUsers()
     }
   }, [])
 
@@ -169,41 +206,36 @@ export default function Dashboard({ /* onLogout */ }: {}) {
     try {
       const orderRef = doc(db, "orders", orderId)
       await updateDoc(orderRef, { status: newStatus })
-      alert(`Order status updated to: ${newStatus}`)
+      toast({
+        title: "Order status updated",
+        description: `Order status updated to: ${newStatus}`,
+      })
     } catch (error) {
       console.error("Error updating order status:", error)
-      alert("Failed to update order status. Please try again.")
+      toast({
+        title: "Failed to update order status",
+        description: "Failed to update order status. Please try again.",
+      })
     }
   }
 
   const filteredOrders = orders.filter((order) => {
     const matchesSearch =
-      searchQuery === "" ||
-      order.id.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.userId.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      order.items.some(item => item.name.toLowerCase().includes(searchQuery.toLowerCase()));
-
-    const orderDate = order.timestamp.toDate()
-    const orderMonth = `${orderDate.getFullYear()}-${(orderDate.getMonth() + 1).toString().padStart(2, '0')}`
-    const matchesMonth = selectedMonth === orderMonth
-
-    // The category ID is not directly available in the item object within the order document.
-    // To enable this filtering, the backend needs to denormalize categoryId into the order's items array
-    // when the order is created, or a more complex frontend fetch logic is required.
-    const matchesCategory = selectedOrderCategory === "all" ||
-      order.items.some(item => item.categoryId === selectedOrderCategory); // This line is problematic if categoryId is missing
-
-    console.log("Firestore Debug: Filtering Order - ID:", order.id, "Search:", searchQuery, "Selected Month:", selectedMonth, "Order Month:", orderMonth, "Matches Search:", matchesSearch, "Matches Month:", matchesMonth, "Matches Category:", matchesCategory, "Result:", matchesSearch && matchesMonth);
-
-    return matchesSearch && matchesMonth; // Removed matchesCategory from Result for now
+      orderSearch === "" ||
+      (order.id && order.id.toLowerCase().includes(orderSearch.toLowerCase())) ||
+      (order.orderNumber && order.orderNumber.toString().includes(orderSearch));
+    // Month filter
+    const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+    const orderMonth = orderDateObj ? `${orderDateObj.getFullYear()}-${(orderDateObj.getMonth() + 1).toString().padStart(2, '0')}` : '';
+    const matchesMonth = selectedMonth === orderMonth;
+    return matchesSearch && matchesMonth;
   })
-  console.log("Firestore Debug: Filtered Orders (final list to table):", filteredOrders, "Total filtered:", filteredOrders.length);
 
   const currentMonthData = monthlyEarningsData[selectedMonth]
 
-  const deliveredOrders = orders.filter((order) => order.status === "Order Delivered").length
-  const preparingOrders = orders.filter((order) => order.status === "Preparing the Order").length
-  const readyOrders = orders.filter((order) => order.status === "Collect your order").length
+  const deliveredOrders = filteredOrders.filter((order) => order.status === "Delivered").length
+  const preparingOrders = filteredOrders.filter((order) => order.status === "Preparing").length
+  const readyOrders = filteredOrders.filter((order) => order.status === "Ready").length
 
   const downloadDailyOrders = () => {
     setIsDownloading(true)
@@ -212,21 +244,25 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       const today = new Date()
       const todayString = today.toISOString().split("T")[0]
       const todayOrders = orders.filter((order) => {
-        const orderDate = order.timestamp.toDate()
-        return orderDate.getFullYear() === today.getFullYear() &&
-          orderDate.getMonth() === today.getMonth() &&
-          orderDate.getDate() === today.getDate()
+        const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+        return orderDateObj &&
+          orderDateObj.getFullYear() === today.getFullYear() &&
+          orderDateObj.getMonth() === today.getMonth() &&
+          orderDateObj.getDate() === today.getDate();
       })
 
-      const excelData = todayOrders.map((order) => ({
+      const excelData = todayOrders.map((order) => {
+        const orderDateObj = order.timestamp ? new Date(order.timestamp) : null;
+        return {
         "Order ID": order.id,
-        "User Email": order.userId,
+        "User Name": order.userId,
         "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
         "Amount (₹)": order.totalAmount,
-        Date: order.timestamp.toDate().toLocaleDateString(),
-        Time: order.timestamp.toDate().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+          Date: orderDateObj ? orderDateObj.toLocaleDateString() : '',
+          Time: orderDateObj ? orderDateObj.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
         Status: order.status,
-      }))
+        }
+      })
 
       const worksheet = utils.json_to_sheet(excelData)
       const workbook = utils.book_new()
@@ -257,14 +293,71 @@ export default function Dashboard({ /* onLogout */ }: {}) {
       document.body.removeChild(a)
       window.URL.revokeObjectURL(url)
 
-      alert(`Downloaded ${todayOrders.length} orders for ${todayString} as Excel file`)
+      toast({
+        title: "Downloaded orders",
+        description: `Downloaded ${todayOrders.length} orders for ${todayString} as Excel file`,
+      })
     } catch (error) {
       console.error("Error generating Excel file:", error)
-      alert("Error generating Excel file. Please try again.")
+      toast({
+        title: "Error generating Excel file",
+        description: "Error generating Excel file. Please try again.",
+      })
     } finally {
       setIsDownloading(false)
     }
   }
+
+  // Export helpers
+  const exportOrders = (ordersToExport: Order[], label: string) => {
+    setIsExporting(true);
+    try {
+      const excelData = ordersToExport.map((order) => ({
+        "Order ID": order.id,
+        "Order #": order.orderNumber,
+        "User ID": order.userId,
+        "Items Ordered": order.items.map(item => `${item.name} (x${item.qty})`).join(", "),
+        "Amount (₹)": order.totalAmount,
+        Date: order.orderDate || (order.timestamp ? new Date(order.timestamp).toLocaleDateString() : ''),
+        Time: order.timestamp ? new Date(order.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '',
+        Status: order.status,
+        "Collection Slot": order.collectionTimeSlot?.displayText || '',
+      }));
+      const worksheet = utils.json_to_sheet(excelData);
+      const workbook = utils.book_new();
+      utils.book_append_sheet(workbook, worksheet, "Orders");
+      worksheet["!cols"] = [
+        { wch: 20 }, { wch: 10 }, { wch: 30 }, { wch: 50 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 25 }, { wch: 20 }
+      ];
+      const excelBuffer = write(workbook, { bookType: "xlsx", type: "array" });
+      const blob = new Blob([excelBuffer], {
+        type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+      });
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `orders-${label}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (error) {
+      console.error("Error generating Excel file:", error);
+    } finally {
+      setIsExporting(false);
+    }
+  };
+
+  // Filter helpers
+  const ordersForDay = exportDate
+    ? orders.filter(order => isSameDay(parseISO(order.timestamp), exportDate))
+    : [];
+  const ordersForWeek = exportWeek
+    ? orders.filter(order => isWithinInterval(parseISO(order.timestamp), { start: startOfWeek(exportWeek, { weekStartsOn: 1 }), end: endOfWeek(exportWeek, { weekStartsOn: 1 }) }))
+    : [];
+  const ordersForMonth = exportMonth
+    ? orders.filter(order => isWithinInterval(parseISO(order.timestamp), { start: startOfMonth(exportMonth), end: endOfMonth(exportMonth) }))
+    : [];
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-slate-50 to-blue-50 pb-10">
@@ -278,7 +371,6 @@ export default function Dashboard({ /* onLogout */ }: {}) {
             <div className="mt-4 sm:mt-0 flex items-center space-x-4">
               {user && <span className="text-sm text-gray-700">Welcome, {user.email}</span>}
               <div className="flex items-center space-x-2">
-                <Calendar className="h-4 w-4 text-gray-500" />
                 <Select value={selectedMonth} onValueChange={setSelectedMonth}>
                   <SelectTrigger className="w-48">
                     <SelectValue placeholder="Select month" />
@@ -316,11 +408,7 @@ export default function Dashboard({ /* onLogout */ }: {}) {
                 <span className="text-3xl font-bold">₹{(currentMonthData?.amount || 0).toFixed(2)}</span>
               </div>
               <div className="flex items-center mt-2 text-sm text-blue-100">
-                <TrendingUp className="h-4 w-4 mr-1" />
-                <span className={`${currentMonthData && currentMonthData.change >= 0 ? "text-green-600" : "text-red-600"}`}>
-                  {currentMonthData && currentMonthData.change >= 0 ? "+" : ""}
-                  {currentMonthData?.change || 0}% from last month
-                </span>
+                Revenue this month
               </div>
             </CardContent>
           </Card>
@@ -387,41 +475,92 @@ export default function Dashboard({ /* onLogout */ }: {}) {
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
-          <TabsList className="grid w-full grid-cols-2 max-w-lg mx-auto mb-6 bg-gray-100 p-1 rounded-lg shadow-sm">
-            <TabsTrigger value="orders" className="py-2">
-              Orders
-            </TabsTrigger>
-            <TabsTrigger value="products" className="py-2">
-              Products
-            </TabsTrigger>
+          <TabsList className="grid w-full grid-cols-3 max-w-lg mx-auto mb-6 bg-gray-100 p-1 rounded-lg shadow-sm">
+            <TabsTrigger value="orders" className="py-2">Orders</TabsTrigger>
+            <TabsTrigger value="payments" className="py-2">Payments</TabsTrigger>
+            <TabsTrigger value="products" className="py-2">Products</TabsTrigger>
           </TabsList>
-
           <TabsContent value="orders">
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-xl font-semibold text-gray-800">Recent Orders</h3>
-              <div className="flex gap-4">
-                <Select value={selectedOrderCategory} onValueChange={setSelectedOrderCategory}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Filter by category" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">All Categories</SelectItem>
-                    {categories.map((category) => (
-                      <SelectItem key={category.id} value={category.id}>
-                        {category.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <Button onClick={downloadDailyOrders} disabled={isDownloading}>
-                  <FileSpreadsheet className="h-4 w-4 mr-2" />
-                  {isDownloading ? "Downloading..." : "Download Today's Orders"}
-                </Button>
-              </div>
+            <div className="mb-4 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+              <Button className="bg-blue-600 text-white hover:bg-blue-700 font-semibold shadow" onClick={() => setExportModalOpen(true)}>
+                Export Orders
+              </Button>
+              <Input
+                placeholder="Search by Order # or Order ID"
+                value={orderSearch}
+                onChange={e => setOrderSearch(e.target.value)}
+                className="w-full max-w-xs"
+              />
             </div>
-            <OrdersTable orders={filteredOrders} onStatusUpdate={handleStatusUpdate} />
+            <Dialog open={exportModalOpen} onOpenChange={setExportModalOpen}>
+              <DialogContent className="max-w-lg">
+                <DialogHeader>
+                  <DialogTitle>Export Orders</DialogTitle>
+                </DialogHeader>
+                <div className="space-y-6">
+                  {/* Day picker */}
+                  <div className="flex gap-2 items-center">
+                    <DatePicker
+                      selected={exportDate ?? undefined}
+                      onChange={date => setExportDate(date as Date)}
+                      dateFormat="PPP"
+                      placeholderText="Pick a day"
+                      className="border rounded px-3 py-2"
+                      isClearable
+                    />
+                    <Button onClick={() => exportOrders(ordersForDay, exportDate ? format(exportDate, 'yyyy-MM-dd') : 'day')} disabled={!exportDate || isExporting} className="bg-green-600 text-white hover:bg-green-700 font-semibold">
+                      Export Day
+                    </Button>
+                  </div>
+                  {/* Week picker */}
+                  <div className="flex gap-2 items-center">
+                    <DatePicker
+                      selected={exportWeek ?? undefined}
+                      onChange={date => setExportWeek(date as Date)}
+                      dateFormat="wo 'week of' MMMM yyyy"
+                      showWeekNumbers
+                      placeholderText="Pick a week"
+                      className="border rounded px-3 py-2"
+                      isClearable
+                    />
+                    <Button onClick={() => exportOrders(ordersForWeek, exportWeek ? `week-${format(startOfWeek(exportWeek, { weekStartsOn: 1 }), 'yyyy-MM-dd')}` : 'week')} disabled={!exportWeek || isExporting} className="bg-green-600 text-white hover:bg-green-700 font-semibold">
+                      Export Week
+                    </Button>
+                  </div>
+                  {/* Month picker */}
+                  <div className="flex gap-2 items-center">
+                    <DatePicker
+                      selected={exportMonth ?? undefined}
+                      onChange={date => setExportMonth(date as Date)}
+                      dateFormat="MMMM yyyy"
+                      showMonthYearPicker
+                      placeholderText="Pick a month"
+                      className="border rounded px-3 py-2"
+                      isClearable
+                    />
+                    <Button onClick={() => exportOrders(ordersForMonth, exportMonth ? format(exportMonth, 'yyyy-MM') : 'month')} disabled={!exportMonth || isExporting} className="bg-green-600 text-white hover:bg-green-700 font-semibold">
+                      Export Month
+                    </Button>
+                  </div>
+                </div>
+                <DialogFooter>
+                  <Button variant="outline" onClick={() => setExportModalOpen(false)}>Close</Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
+            <OrdersTable orders={filteredOrders} onStatusUpdate={handleStatusUpdate} payments={payments} users={users} search={orderSearch} />
           </TabsContent>
-
+          <TabsContent value="payments">
+            <div className="mb-4 flex justify-end">
+              <Input
+                placeholder="Search by Order #, or Order ID"
+                value={paymentSearch}
+                onChange={e => setPaymentSearch(e.target.value)}
+                className="w-full max-w-xs"
+              />
+            </div>
+            <PaymentsTable payments={payments} users={users} orders={orders} search={paymentSearch} />
+          </TabsContent>
           <TabsContent value="products">
             <ProductManagement />
           </TabsContent>
